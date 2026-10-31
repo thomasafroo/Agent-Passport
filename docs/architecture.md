@@ -89,7 +89,24 @@ The decision is final for that operation and its idempotency key. A retry with t
 
 A `reserved` or `dispatched` operation may still be running in an executor. It cannot be reconciled until 300 seconds after its reservation (`OPERATION_IN_FLIGHT`). This guard only delays the operator's decision; nothing is ever settled by elapsed time. `unknown` operations have already left the executor and have no guard.
 
-Reconciliation is an operator surface: the console session endpoints and the local script. The agent API has no equivalent. The receipt attests that the issuer recorded the operator's statement, not that the upstream effect did or did not occur. A wrong `not_executed` decision returns a unit that was actually spent. Production adapters should prefer upstream idempotency or a queryable effect record over human judgment.
+Reconciliation is an operator surface: the console session endpoints and the local script. The agent API has no equivalent. The receipt attests that the issuer recorded the operator's statement, not that the upstream effect did or did not occur. A wrong `not_executed` decision returns a unit that was actually spent.
+
+### From the upstream's effect record
+
+The fixture service keeps its own effect log, standing in for an upstream with idempotency keys and a queryable effect record. The executor sends the operation ID as the idempotency key. The upstream produces the effect and records it under that ID in one transaction, and a repeated ID returns the recorded result without applying anything.
+
+Instead of stating an outcome, the operator can ask the upstream with `python scripts/reconcile.py OPERATION_ID --lookup` or `POST /api/operations/{oid}/lookup` from the console session. The lookup follows the same rules as an operator decision: it applies only to an unresolved operation past the in-flight guard, once, with a signed receipt.
+
+```text
+record found      reconciled completed; the receipt's basis includes the recorded result digest
+no record         the upstream fences the ID first, then reconciled not_executed
+other operation   EFFECT_MISMATCH; nothing changes, decide by hand
+lookup fails      LOOKUP_FAILED or LOOKUP_UNSUPPORTED; nothing changes, no fence
+```
+
+Fencing is what makes a refund sound. "Not found" alone could be a request still in transit. Once fenced, a late delivery of that ID is refused before any effect, so the returned unit can never be spent upstream too.
+
+The lookup is only as good as the upstream's guarantee that effects and records are atomic. The receipt attests what the upstream reported, not independent proof of the effect. A real adapter needs an upstream that offers both idempotency keys and fencing, or an equivalent cancel-if-not-started call.
 
 ## Revocation linearization
 

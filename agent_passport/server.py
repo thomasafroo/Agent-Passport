@@ -159,6 +159,14 @@ def create_app(directory=None):
             raise HTTPException(404)
         return passport.reconcile(oid, body.outcome, body.reason)
 
+    @app.post("/api/operations/{oid}/lookup")
+    def lookup(oid: str, request: Request):
+        # Operator surface: reconcile from the upstream's effect record. No agent-API equivalent.
+        console(request)
+        if oid not in {o["id"] for o in passport.unresolved(demo.run_id)}:
+            raise HTTPException(404)
+        return executor.resolve(oid)
+
     @app.get("/api/evidence")
     def evidence(request: Request):
         console(request)

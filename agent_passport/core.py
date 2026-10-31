@@ -447,7 +447,7 @@ class Passport:
         finally:
             db.close()
 
-    def reconcile(self, oid, outcome, reason, operator="Local operator"):
+    def reconcile(self, oid, outcome, reason, operator="Local operator", basis=None):
         """Trusted operator decision about an operation whose effect the executor could not settle.
 
         Never exposed on the agent API and never invoked on a timer. The operator attests what
@@ -479,6 +479,9 @@ class Passport:
                     "chain": chain, "request_digest": op["digest"], "resource": op["resource"], "action": op["action"],
                     "previous_state": op["state"], "outcome": state, "reason": reason.strip(),
                     "decided_by": operator.strip(), "policy": POLICY, "cost": int(outcome == "completed"), "time": now}
+            if basis is not None:
+                # Trusted executor code only, such as an upstream effect lookup; never agent input.
+                body["basis"] = basis
             receipt = {"body": body, "signature": b64(self.key.sign(canonical(body)))}
             # The guarded update makes a concurrent dispatch, settlement or second decision impossible.
             changed = db.execute(f"UPDATE operations SET state=? WHERE id=? AND state IN ({','.join('?' * len(UNRESOLVED))})",
