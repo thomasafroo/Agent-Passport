@@ -35,6 +35,13 @@ The browser is the local human operator console. It can issue the scripted root 
 | A witnessed checkpoint detects a removed suffix or a recomputed chain | Suffix-drop and full-rechain tests that pass without a checkpoint and fail with one |
 | A witness file is never extended over a rolled-back or rewritten history | Deleted-event and replaced-issuer tests that leave the witness file unchanged |
 | Checkpoints, reconciliations and operation receipts cannot stand in for each other | Cross-type substitution tests |
+| Deprovisioning an owner voids every grant issued for them, in every run, and only theirs | Root and depth-4 descendant denial across two runs; another owner's run completes |
+| Deprovisioning is online and linearized with reservation | Concurrent deactivate-versus-reserve test: no reservation event follows the deactivation event |
+| Deprovisioning refunds only work that never dispatched | Queued reservation cancelled once with a refund; dispatched and unknown operations keep their units |
+| Reactivating an owner does not revive old grants | Same-clock reactivation test; new issuance works; a second cut voids it again |
+| Owner lifecycle changes are signed and verifiable offline | Lifecycle receipt tamper, foreign-owner and cross-type substitution tests |
+| Owner provisioning is not reachable by agents or bearer tokens | SCIM routes refuse agent passports, any `Authorization` header, and a missing console session |
+| Pre-owner databases and tokens keep working | Migration test with dropped owner tables and columns |
 
 ## Explicit non-claims
 
@@ -50,6 +57,9 @@ The browser is the local human operator console. It can issue the scripted root 
 - No LLM attack-resistance or universal prompt-injection prevention claim is made. The fixture explicitly issues malicious requests to test the gateway, and a live model's choice to follow or ignore the planted log line is not measured or relied on.
 - There is no data-flow tracking or quarantine of downstream outputs from a compromised worker.
 - Hash-linked events without a witnessed checkpoint are not a tamper-proof audit ledger. With one, only the prefix it covers is anchored, and only as well as the witness copy is kept out of the database owner's reach. The issuer key holder can sign a checkpoint of any history it likes.
+- An owner is an operator-entered record, not a verified identity. There is no identity-provider integration, no SCIM bearer authentication, and no conformant SCIM server: the `/scim/v2/Users` routes are a SCIM-shaped subset behind the local console session. Whoever has operator access can provision, deprovision or reactivate any owner.
+- Deprovisioning cannot recall work that already crossed the dispatch boundary, and it does not revoke the provider credential or anything the owner holds outside this gateway. Legacy grants issued before owners existed have no owner and are unaffected by it.
+- A lifecycle receipt's list of affected runs is the issuer's statement at commit time, not an independently checked completeness claim.
 - There is no public hosting, user login, per-tenant isolation, rate limiter, retention policy, or production denial-of-service protection.
 - The private key is stored locally in a file. POSIX mode is restricted at creation; on Windows, protection relies on inherited user-directory ACLs. This is not HSM-backed key storage.
 

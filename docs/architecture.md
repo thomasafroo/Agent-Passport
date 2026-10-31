@@ -58,7 +58,7 @@ Zero affected rows means denial. The operation record and audit event commit wit
 ```mermaid
 stateDiagram-v2
     [*] --> reserved: atomic authorization + unit reservation
-    reserved --> cancelled: revoked or expired at dispatch / refund
+    reserved --> cancelled: revoked, expired or owner deprovisioned at dispatch / refund
     reserved --> dispatched: ancestor recheck succeeds
     dispatched --> completed: known success / reserved to spent
     dispatched --> failed: known pre-effect failure / refund
@@ -114,7 +114,41 @@ Revocation commits a flag on a grant in a write transaction. Reservations and di
 
 Reservations cancelled before dispatch return their units once. Descendant rows are not rewritten on revocation; effective status is derived from the ancestor chain. Sibling branches remain valid, although an abusive branch may already have consumed the shared budget. Containment does not guarantee fairness or unspent capacity for siblings.
 
-There is no authorization cache. A database error fails the request rather than falling back to allow. This implementation does not model remote authorization servers, partitions, distributed clocks, or bounded offline access.
+There is no authorization cache. A database error fails the request rather than falling back to allow.
+
+## Accountable owners and deprovisioning
+
+Every root is issued on behalf of an owner: an operator-managed record of a human with an ID, user name, display name, optional external ID, an active flag, an epoch, and timestamps. `create_run(owner=...)` names one. Callers that name none get the default `Local operator` owner, created on first use. The scripted console run uses that default owner.
+
+The owner ID is signed into the root's claims as `owner`, and every descendant inherits it unchanged. Operation and reconciliation receipts include it. Grants created before owners existed are upgraded in place without one: their tokens verify unchanged, they carry no `owner` claim, and no owner check applies to them.
+
+Deprovisioning is an online fact, like revocation. `_chain` reads the root's owner row in the same write transaction as each reservation and dispatch. The check fails with `OWNER_DEPROVISIONED` when the owner is inactive, or when the root was issued under an earlier owner epoch. No descendant row is rewritten; status is derived. Consequences follow the revocation rules:
+
+```text
+reserved, not dispatched   cancelled at dispatch, unit returned once
+dispatched                 keeps its unit; the trusted executor may still settle it
+unknown                    keeps its unit until an operator reconciles it
+new reservation/delegation denied, OWNER_DEPROVISIONED
+new root for the owner     denied while the owner is inactive
+```
+
+Deactivation commits under the same SQLite write lock as reservations, so no reservation committed after it can succeed for that owner's grants.
+
+Reactivation does not restore old grants. Each deactivation increments the owner's epoch, and a root records the epoch it was issued under. After reactivation the owner can be issued new roots; every grant issued before the deactivation stays void, even if no time has passed. Restoring access means new issuance. Resetting the console re-provisions the default owner if it was deactivated, with its own signed receipt, and issues a new run; it never reactivates any other owner.
+
+Each change (provisioned, deprovisioned, reactivated) is signed by the issuer as a `lifecycle` receipt naming the owner, the change, the resulting active flag and epoch, the acting operator, and the runs issued for that owner at that moment. Owner changes are not per run, so they are recorded twice: the signed receipt goes into an owner-level `lifecycle` table, and a hash-linked `deprovisioned` or `reactivated` event is appended to the ledger of every affected run in the same transaction. A run's evidence export includes the full signed lifecycle of its owner under `lifecycle`. The verifier checks each signature, requires `type: lifecycle`, and requires the receipt to name the run's owner. Operation receipts must carry no `type`, and reconciliations, checkpoints and lifecycle receipts each require their own, so none can stand in for another. A lifecycle receipt attests the operator's statement of a provisioning change, not the person's identity.
+
+Owners are managed only from operator surfaces: `python scripts/owners.py`, the console's owners panel (deactivate only), and a SCIM-shaped subset under `/scim/v2/Users`:
+
+```text
+POST   /scim/v2/Users           provision (userName, displayName, optional externalId; created active)
+GET    /scim/v2/Users           list; the only supported filter is userName eq "..."
+GET    /scim/v2/Users/{id}      read
+PATCH  /scim/v2/Users/{id}      exactly one replace of active: {"path":"active","value":false} or {"value":{"active":false}}
+DELETE /scim/v2/Users/{id}      deprovision; the record is kept so past authority stays attributable
+```
+
+This is a demo subset in SCIM's shape, not a conformant SCIM server: no other attributes, filters, paging, PUT, bulk, ETags, `/Schemas` or `/ServiceProviderConfig`; validation errors return 422 rather than SCIM's 400; DELETE leaves the user readable. Request bodies are strict and reject unknown fields. Authentication is the local console session header. Any request carrying an `Authorization` header is refused, so neither a SCIM bearer token nor an agent passport can reach it. There is no identity-provider integration. This implementation does not model remote authorization servers, partitions, distributed clocks, or bounded offline access.
 
 ## Credential boundary
 

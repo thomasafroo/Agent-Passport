@@ -145,8 +145,8 @@ main { max-width: 1320px; margin: 0 auto; padding: 0 32px 40px; }
 .node-scope { font-size: 12.5px; color: var(--ink-2); }
 .node-scope b { font: 500 12px var(--mono); color: var(--visa); }
 .node-id { font: 11px var(--mono); color: var(--ink-3); }
-.node.revoked, .node.expired { background: repeating-linear-gradient(135deg, #fbf3f3 0 6px, #f6e7e8 6px 7px); border-color: #e2b3b9; }
-.node.revoked .dot { background: var(--stamp); }
+.node.revoked, .node.expired, .node.deprovisioned { background: repeating-linear-gradient(135deg, #fbf3f3 0 6px, #f6e7e8 6px 7px); border-color: #e2b3b9; }
+.node.revoked .dot, .node.deprovisioned .dot { background: var(--stamp); }
 .node.revoked .node-scope b { color: var(--stamp); text-decoration: line-through; }
 .node.expired .dot { background: var(--ink-3); }
 .node .void { position: absolute; right: -6px; top: -10px; background: #fdf6f6; padding: 1px 6px; border: 2px solid var(--stamp); border-radius: 4px; color: var(--stamp); font: 700 11px var(--font); letter-spacing: .12em; transform: rotate(-8deg); opacity: .9; }
@@ -233,8 +233,8 @@ main { max-width: 1320px; margin: 0 auto; padding: 0 32px 40px; }
 .ancestry li.revoked + li::before, .ancestry li.cut + li::before { border-left: 1.5px dashed var(--stamp); }
 .ancestry li small { margin-left: auto; font-size: 12px; color: var(--ink-3); }
 .ancestry li.operator .dot { background: var(--ink); }
-.ancestry li.revoked .dot, .ancestry li.cut .dot { background: var(--stamp); }
-.ancestry li.cut small, .ancestry li.revoked small { color: var(--stamp); font-weight: 600; }
+.ancestry li.revoked .dot, .ancestry li.cut .dot, .ancestry li.deprovisioned .dot { background: var(--stamp); }
+.ancestry li.cut small, .ancestry li.revoked small, .ancestry li.deprovisioned small { color: var(--stamp); font-weight: 600; }
 .ancestry li.expired .dot { background: var(--ink-3); }
 .ancestry li.self span:nth-child(2) { font-weight: 600; }
 .inspector-actions { display: grid; gap: 8px; }
@@ -293,6 +293,18 @@ main { max-width: 1320px; margin: 0 auto; padding: 0 32px 40px; }
 .node.live-node { border: 1.5px dashed var(--foil); background: #fffaf0; }
 .node .live-chip { position: absolute; right: -6px; top: -10px; padding: 1px 7px; border-radius: 999px; background: var(--foil); color: var(--navy-1); font: 700 10.5px/1.5 var(--font); letter-spacing: .1em; box-shadow: 0 0 0 3px var(--sheet); }
 @media (max-width: 940px) { .live { grid-template-columns: 1fr; } }
+.owners { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.4fr); gap: 12px 32px; margin-top: 16px; padding: 22px 24px; background: var(--sheet); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow); }
+.owners h2 { font: 600 24px/1.15 var(--font-cond); }
+.owners .live-copy code { font-size: 12.5px; }
+.owner-list { list-style: none; padding: 0; display: grid; gap: 10px; align-content: start; }
+.owner-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 14px; }
+.owner-list li small { display: block; font-size: 12px; color: var(--ink-3); }
+.owner-list li.inactive { background: repeating-linear-gradient(135deg, #fbf3f3 0 6px, #f6e7e8 6px 7px); border-color: #e2b3b9; }
+.owner-list .revoke { min-height: 36px; padding: 0 14px; font-size: 13px; }
+.tag.inactive { background: var(--stamp-soft); color: var(--stamp); }
+.tag.active { background: var(--visa-soft); color: var(--visa); }
+@media (max-width: 940px) { .owners { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .owners { padding: 18px 16px; } .owner-list li { grid-template-columns: minmax(0, 1fr) auto; } .owner-list .revoke { grid-column: 1 / -1; justify-self: start; } }
 @media (max-width: 760px) { .live { padding: 18px 16px; } .live-steps li { grid-template-columns: 26px minmax(0, 1fr); } .live-steps li .primary { grid-column: 2; justify-self: start; } }
 
 /* ---------- Ledger ---------- */
@@ -318,7 +330,7 @@ main { max-width: 1320px; margin: 0 auto; padding: 0 32px 40px; }
 .event-main small { display: block; font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tag { padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--paper); color: var(--ink-2); white-space: nowrap; }
 .tag.completed { background: var(--visa-soft); color: var(--visa); }
-.tag.denied, .tag.revoked, .tag.injected { background: var(--stamp-soft); color: var(--stamp); }
+.tag.denied, .tag.revoked, .tag.injected, .tag.deprovisioned { background: var(--stamp-soft); color: var(--stamp); }
 .event-row.highlight { background: #fbf1f1; }
 .empty { padding: 32px 22px; color: var(--ink-2); font-size: 14px; }
 
