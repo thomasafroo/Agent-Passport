@@ -29,6 +29,9 @@ The browser is the local human operator console. It can issue the scripted root 
 | Unresolved operations are settled only by an operator decision | Time-advance retention test; agent-API and bearer-token rejection of reconcile routes |
 | A reconciliation applies once and is never re-executed | Concurrent-decision, retry-after-decision, late dispatch and late settlement tests |
 | Reconciliations are signed and verifiable offline | Reconciliation receipt tamper and evidence verifier tests |
+| An upstream effect lookup settles an unresolved operation only from the upstream's record | Lost-response, lost-request, crash-after-effect and mismatched-record tests |
+| A refunded operation can never apply upstream later | Fence test: a late delivery of a reconciled ID is refused before any effect |
+| Failed or premature lookups change nothing | Unsupported, credential-failure, rejected-credential and in-flight tests check the unit is retained and no fence is written |
 | A witnessed checkpoint detects a removed suffix or a recomputed chain | Suffix-drop and full-rechain tests that pass without a checkpoint and fail with one |
 | A witness file is never extended over a rolled-back or rewritten history | Deleted-event and replaced-issuer tests that leave the witness file unchanged |
 | Checkpoints, reconciliations and operation receipts cannot stand in for each other | Cross-type substitution tests |
@@ -42,7 +45,7 @@ The browser is the local human operator console. It can issue the scripted root 
 - Signed tokens alone do not revoke anything. Revocation depends on online durable state checks.
 - Already dispatched operations can finish after revocation. Effects cannot be undone.
 - No distributed-cache, network-partition, or clock-skew bound has been established. The server wall clock is trusted.
-- No automatic recovery of crash-stranded reservations is implemented. Capacity stays held until an operator reconciles it. A reconciliation receipt records the operator's statement; it is not evidence of the upstream effect, and a wrong decision misstates the budget by one unit.
+- No automatic recovery of crash-stranded reservations is implemented. Capacity stays held until an operator reconciles it, by stating the outcome or by asking the fixture upstream's effect record. A reconciliation receipt records the operator's statement or the upstream's report; it is not independent evidence of the effect, and a wrong decision misstates the budget by one unit. Lookup soundness rests on the fixture's atomic effect recording and fencing, which a real upstream would have to provide.
 - The fixture service has no production side effects. There is no claim of exactly-once execution against an arbitrary external API.
 - No LLM attack-resistance or universal prompt-injection prevention claim is made. The fixture explicitly issues malicious requests to test the gateway, and a live model's choice to follow or ignore the planted log line is not measured or relied on.
 - There is no data-flow tracking or quarantine of downstream outputs from a compromised worker.

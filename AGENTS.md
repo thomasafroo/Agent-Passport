@@ -20,6 +20,7 @@ Use the repository's `.venv` when available. No frontend build is required. Relo
 - Agents cannot set cost, choose secret references or upstream URLs, refund operations, or settle outcomes.
 - Unknown effects and crash-stranded operations retain capacity. A timeout is not evidence of a safe refund.
 - Only an operator reconciles unresolved operations, once, with a recorded basis and a signed receipt. Never settle by elapsed time, and never expose reconciliation on the agent API.
+- An effect lookup may return a unit only after the upstream has fenced the operation ID. "Not found" without a fence is not evidence that nothing happened.
 - Retries with the same grant/key must not execute again. Keys are bound to an exact operation digest.
 - A key-bound passport needs a fresh, single-use holder proof on every agent request. Delegation cannot drop or redirect the binding. Holder private keys stay in process memory and never reach disk, logs, or tool output.
 - `.state/`, credentials, bearer tokens, and private keys must stay out of Git and user-facing output.
