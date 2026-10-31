@@ -9,6 +9,7 @@ means no failure was found in the inputs tried, nothing more.
 """
 import argparse
 import copy
+import importlib
 from pathlib import Path
 import sys
 import tempfile
@@ -131,7 +132,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="passport-fuzz-", ignore_cleanup_errors=True) as directory:
         available = targets(*build_fixture(directory))
         if args.atheris:
-            import atheris  # optional; not installed by the dev extra
+            atheris = importlib.import_module("atheris")  # optional; not installed by the dev extra
             if args.target == "all":
                 parser.error("--atheris drives one target at a time")
             atheris.Setup([sys.argv[0], *args.fuzzer_args], available[args.target].hypothesis.fuzz_one_input)

@@ -26,7 +26,7 @@ PAIRS = sorted(CATALOG)
 
 def scaled(n):
     """Scale an example count with the active profile (60 examples by default)."""
-    return max(n, settings.default.max_examples * n // 60)
+    return max(n, settings().max_examples * n // 60)
 
 
 def denial(fn):
@@ -258,7 +258,7 @@ class SharedBudgetMachine(RuleBasedStateMachine):
         pair = data.draw(st.sampled_from(PAIRS), label="pair")
         kind, value = self.expected_reservation(agent, key, pair)
         try:
-            op = self.engine.reserve(self.agents[agent]["token"], *pair, key)
+            op = self.engine.reserve(self.agents[agent]["token"], pair[0], pair[1], key)
         except Denied as error:
             assert (kind, value) == ("denied", error.rule)
             return
@@ -278,7 +278,7 @@ class SharedBudgetMachine(RuleBasedStateMachine):
         kind, value = self.expected_reservation(agent, key, pair)
         service = CountingService(self.calls, (agent, key), outcome)
         try:
-            result = Executor(self.engine, service=service).execute(self.agents[agent]["token"], *pair, key)
+            result = Executor(self.engine, service=service).execute(self.agents[agent]["token"], pair[0], pair[1], key)
         except Denied as error:
             assert (kind, value) == ("denied", error.rule)
             return

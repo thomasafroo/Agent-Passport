@@ -1,0 +1,25 @@
+name: Dependency audit
+# Blocking by design: every dependency is pinned exactly, so a reported advisory is actionable
+# (bump the pin, or record why it is unreachable below). It runs in its own job so test results
+# still report, and weekly so advisories published after a merge surface without a new commit.
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1'
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install pip-audit==2.10.1
+      # Audits the exact pins in requirements.lock without installing them.
+      # PYSEC-2026-3552 (CVE-2026-69247): PKCS#7 EnvelopedData decryption oracle in cryptography < 50.
+      # Unreachable here: only Ed25519 signing and raw key serialization are used. Remove the ignore
+      # when the cryptography pin is raised to 50.x.
+      - run: >-
+          python -m pip_audit -r requirements.lock --no-deps --disable-pip --progress-spinner off
+          --ignore-vuln PYSEC-2026-3552
