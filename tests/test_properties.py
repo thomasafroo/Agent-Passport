@@ -184,6 +184,7 @@ class SharedBudgetMachine(RuleBasedStateMachine):
         self.run_id, self.budget, self.expires = root["run_id"], budget, root["grant"]["expires"]
         self.agents = [{"token": root["token"], "id": root["grant"]["id"], "parent": None, "pairs": set(CATALOG), "depth": 0}]
         self.revoked = set()
+        # Insertion order, not sorted ids: ids are random, so sorting would change draws on replay.
         self.ops = {}        # operation id -> {"agent", "key", "pair", "state", "created"}
         self.by_key = {}     # (agent index, request key) -> operation id
         self.spent = self.reserved = 0
@@ -297,7 +298,7 @@ class SharedBudgetMachine(RuleBasedStateMachine):
     @precondition(lambda self: self.ops)
     @rule(data=st.data())
     def dispatch(self, data):
-        oid = data.draw(st.sampled_from(sorted(self.ops)), label="operation")
+        oid = data.draw(st.sampled_from(list(self.ops)), label="operation")
         op = self.ops[oid]
         rule = self.chain_rule(op["agent"])
         try:
@@ -315,7 +316,7 @@ class SharedBudgetMachine(RuleBasedStateMachine):
     @precondition(lambda self: self.ops)
     @rule(data=st.data(), outcome=st.sampled_from(["completed", "failed", "unknown"]))
     def settle(self, data, outcome):
-        oid = data.draw(st.sampled_from(sorted(self.ops)), label="operation")
+        oid = data.draw(st.sampled_from(list(self.ops)), label="operation")
         rule = denial(lambda: self.engine.settle(oid, outcome, {"outcome": outcome}))
         if self.ops[oid]["state"] != "dispatched":
             assert rule == "OPERATION_STATE"
@@ -336,7 +337,7 @@ class SharedBudgetMachine(RuleBasedStateMachine):
     @precondition(lambda self: self.ops)
     @rule(data=st.data(), outcome=st.sampled_from(["completed", "not_executed"]))
     def reconcile(self, data, outcome):
-        oid = data.draw(st.sampled_from(sorted(self.ops)), label="operation")
+        oid = data.draw(st.sampled_from(list(self.ops)), label="operation")
         op = self.ops[oid]
         rule = denial(lambda: self.engine.reconcile(oid, outcome, "Operator checked the upstream record."))
         if op["state"] not in UNRESOLVED:
