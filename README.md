@@ -105,6 +105,35 @@ python scripts/verify_evidence.py EVIDENCE.json --public-key-file KEY.txt --chec
 
 The verifier then rejects a removed suffix or a rewritten prefix, and reports how many events after the latest checkpoint remain unanchored. A checkpoint shows what the issuer's log contained when it was witnessed, not that the issuer was honest. See [Checkpoints](docs/architecture.md#checkpoints).
 
+## Operator commands
+
+Run these from the repository root. Each script reads `.state/` unless you pass `--state-dir` or set `PASSPORT_STATE_DIR`.
+
+| Task | Command |
+|---|---|
+| List operations still holding budget | `python scripts/reconcile.py` |
+| Decide one by hand | `python scripts/reconcile.py OPERATION_ID --outcome not_executed --reason "Upstream log shows no request arrived."` |
+| Decide one from the upstream's effect record | `python scripts/reconcile.py OPERATION_ID --lookup` |
+| Sign a checkpoint and append it to a witness file | `python scripts/checkpoint.py [--run RUN_ID] [--witness PATH]` |
+| Verify exported evidence | `python scripts/verify_evidence.py EVIDENCE.json --public-key-file KEY.txt [--checkpoints WITNESS.jsonl]` |
+| Re-run the simulated revocation experiment | `python scripts/revocation_experiment.py` |
+| Record a live-model session against a running gateway | `python scripts/record_live_run.py --name NAME [--require-mode synthetic\|1password-cli]` |
+| Check the live 1Password path | `python scripts/check_1password.py` (see [1Password setup](docs/1password.md)) |
+
+`record_live_run.py` starts a headless `claude` session and uses API credit; its transcript and evidence go to `artifacts/live-runs/`. [Live agent guide: record a run](docs/live-agent.md#record-a-run).
+
+The same operator actions are available to the console session, never to agent passports:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/operations/unresolved` | List the current run's unresolved operations |
+| `POST /api/operations/{oid}/reconcile` | Record an operator decision, body `{"outcome": ..., "reason": ...}` |
+| `POST /api/operations/{oid}/lookup` | Reconcile from the upstream's effect record |
+| `POST /api/checkpoint` | Sign a checkpoint of the current run |
+| `GET /api/evidence` | Export the current run's evidence |
+
+Each needs the `X-Passport-Console` header from `GET /api/session`. Save evidence with `Invoke-WebRequest -OutFile` or `curl -o`; re-encoding the JSON can change numbers and break the hashes.
+
 ## 1Password integration
 
 The default runs entirely offline. To exercise the real credential path, use a dedicated test vault and synthetic fixture key with the 1Password CLI. Follow [the setup guide](docs/1password.md). Credentials are retrieved only by the executor; agent inputs cannot choose a secret reference, URL, header, shell command, or credential provider.
@@ -154,12 +183,13 @@ agent_passport/server.py   Local console and token-plus-proof agent API
 agent_passport/mcp_server.py  MCP adapter for a live model; holds passports, never returns them
 web/                      Responsive console; plain JS, CSS, no external assets
 tests/                    Security invariants and HTTP integration tests
-scripts/                  Benchmarks, scenario runner, offline verifier, operator reconciliation, checkpoints
+scripts/                  Benchmarks, scenario runner, offline verifier, reconciliation, checkpoints,
+                          revocation experiment, live-run recorder, 1Password check
 docs/                     Design, threat model, demo script, integration setup
 ```
 
 ## Boundaries and next research questions
 
-The current model counts fixed-cost operations, not dollars or actual provider usage. It shares a root pool rather than allocating child sub-budgets. Holder binding stops a copied token from being used, but not a compromised holder: a process that can read the holder's memory can take its key. Revocation linearizes at the database transaction; already dispatched work may still finish. Unknown or crash-interrupted operations deliberately retain capacity until a local operator reconciles them with a signed, recorded decision (`python scripts/reconcile.py`). Nothing settles them automatically, and a reconciliation receipt attests the operator's statement, not the upstream effect.
+The current model counts fixed-cost operations, not dollars or actual provider usage. It shares a root pool rather than allocating child sub-budgets. Holder binding stops a copied token from being used, but not a compromised holder: a process that can read the holder's memory can take its key. Revocation linearizes at the database transaction; already dispatched work may still finish. Unknown or crash-interrupted operations deliberately retain capacity until a local operator reconciles them with a signed, recorded decision (`python scripts/reconcile.py`), stated by hand or looked up in the fixture upstream's effect record (`--lookup`). Nothing settles them automatically, and a reconciliation receipt attests the operator's statement or the upstream's report, not independent proof of the effect.
 
-[A simulated experiment](docs/revocation-experiment.md) measures what a caching edge would cost under network partitions. A fail-open cache let a revoked branch keep working for the whole partition. Bounded staleness with budget leases capped that delay and never overspent, but the cap depends on the edge's clock. The shipped gateway still has no cache. Other extensions include per-agent signing keys, data-dependency quarantine, external service idempotency, trusted resource-version approvals, effect lookup against a real upstream, and checkpoints published to an independent transparency log. None is represented as implemented here; the shipped checkpoints rely on the operator keeping a witness copy.
+[A simulated experiment](docs/revocation-experiment.md) measures what a caching edge would cost under network partitions. A fail-open cache let a revoked branch keep working for the whole partition. Bounded staleness with budget leases capped that delay and never overspent, but the cap depends on the edge's clock. The shipped gateway still has no cache. Other extensions include per-agent signing keys, data-dependency quarantine, trusted resource-version approvals, idempotency and effect lookup against a real upstream rather than the fixture, and checkpoints published to an independent transparency log. None is represented as implemented here; the shipped checkpoints rely on the operator keeping a witness copy.
