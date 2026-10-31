@@ -8,6 +8,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent_passport.core import canonical, verify_receipt
 
+# Every error verify() raises on a malformed or tampered document. The CLI reports each as a failed verification.
+MALFORMED = (ValueError, KeyError, TypeError, AttributeError)
+
 
 def verify(evidence, pinned_key, checkpoints=()):
     """Checkpoints must come from a witness copy, never from the evidence being checked."""
@@ -79,7 +82,7 @@ def main():
         if args.checkpoints and not checkpoints:
             raise ValueError("The witness file holds no checkpoint for this run")
         print(json.dumps(verify(evidence, pinned, checkpoints), indent=2))
-    except (ValueError, KeyError, TypeError) as error:
+    except MALFORMED as error:
         print(f"Verification failed: {error}", file=sys.stderr); sys.exit(1)
 
 

@@ -12,18 +12,18 @@ The browser is the local human operator console. It can issue the scripted root 
 
 | Claim | Evidence |
 |---|---|
-| Forks cannot duplicate a root budget | 64-worker thread test; independent-process reservation test; 100-agent benchmark |
-| Child scopes cannot expand | Exact-pair and wildcard rejection tests |
+| Forks cannot duplicate a root budget | 64-worker thread test; independent-process reservation test; 100-agent benchmark; stateful property test of random delegate/reserve/settle/revoke/reconcile sequences against one shared row (`tests/test_properties.py`) |
+| Child scopes cannot expand | Exact-pair and wildcard rejection tests; property tests over random and malformed scope requests, including the no-Cartesian-product check |
 | Expiry cannot expand or be forgotten on restart | Child expiry and persisted expiry tests |
 | Revocation cuts descendants, not siblings | Chain revocation and sibling completion tests |
 | Queued jobs are not grandfathered in | Dequeue revocation and expiry tests |
-| Retries cannot double-spend a key | 50 concurrent retries; durable crash reservation test |
-| Unknown effects cannot trigger free retries | Unknown-outcome capacity retention test |
+| Retries cannot double-spend a key | 50 concurrent retries; durable crash reservation test; stateful property test counting upstream calls per key |
+| Unknown effects cannot trigger free retries | Unknown-outcome capacity retention test; stateful property test of unit retention for unknown and unsettled operations |
 | Agent requests do not obtain the provider credential | Snapshot/receipt redaction tests and fixed fixture response surface |
-| Modified passports and receipts are rejected | Signature and foreign-issuer tests |
+| Modified passports and receipts are rejected | Signature and foreign-issuer tests; property tests of arbitrary and mutated tokens, issuer-signed foreign claims, and single-field evidence mutations |
 | A live model's tool results never contain passport tokens | MCP adapter output scan across every tool, including delegated workers |
 | Reset withdraws a live agent | Reset revokes the live branch, deletes its token file, and the adapter drops worker passports |
-| A stolen key-bound token authorizes nothing without its holder key | Missing, forged, replayed, stale, non-finite, and request-mismatched proof tests; stolen live token file test over HTTP |
+| A stolen key-bound token authorizes nothing without its holder key | Missing, forged, replayed, stale, non-finite, and request-mismatched proof tests; stolen live token file test over HTTP; property tests of arbitrary, mutated and holder-signed malformed proofs |
 | Delegation cannot drop or redirect holder binding | Bearer-child and swapped-child-key tests |
 | No holder private key reaches disk | State-directory scan for the adapter's private key bytes |
 | Unresolved operations are settled only by an operator decision | Time-advance retention test; agent-API and bearer-token rejection of reconcile routes |
@@ -35,6 +35,8 @@ The browser is the local human operator console. It can issue the scripted root 
 | A witnessed checkpoint detects a removed suffix or a recomputed chain | Suffix-drop and full-rechain tests that pass without a checkpoint and fail with one |
 | A witness file is never extended over a rolled-back or rewritten history | Deleted-event and replaced-issuer tests that leave the witness file unchanged |
 | Checkpoints, reconciliations and operation receipts cannot stand in for each other | Cross-type substitution tests |
+| Hostile agent input is refused, never a server error | Property tests of the agent HTTP API and of token and proof parsing; `scripts/fuzz.py` for longer runs |
+| The verifier rejects every change to hashed or signed content | Single-field mutation property over events, receipts, reconciliations and checkpoints; unsigned fields it does not check are listed in `docs/security-testing.md` |
 
 ## Explicit non-claims
 

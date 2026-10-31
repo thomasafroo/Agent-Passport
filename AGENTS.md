@@ -7,6 +7,9 @@ This is a local security research project, not a marketing-only mockup. Preserve
 - Install: `python -m pip install -r requirements.lock -e ".[dev]"`
 - Run: `python -m agent_passport` (loopback port 8787)
 - Test: `python -m pytest -q`
+- Lint and type check: `python -m ruff check .` and `python -m pyright` (run from the activated `.venv` so pyright resolves its packages)
+- Property tests at higher volume: set `HYPOTHESIS_PROFILE=fuzz` before `python -m pytest -q tests/test_properties.py`
+- Fuzz verifier and token/proof parsing: `python scripts/fuzz.py all --examples 20000`; see `docs/security-testing.md`
 - Measure: `python scripts/benchmark.py`
 - Reproduce incident: `python scripts/run_scenario.py`
 - Verify evidence offline: `python scripts/verify_evidence.py EVIDENCE.json --public-key-file KEY.txt [--checkpoints WITNESS.jsonl]`

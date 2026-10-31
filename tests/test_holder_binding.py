@@ -201,8 +201,9 @@ def test_demo_binds_every_agent_and_records_the_replay(engine):
 
 def test_http_agent_api_requires_proof_header_for_bound_passports(tmp_path, monkeypatch):
     monkeypatch.delenv("PASSPORT_OP_REFERENCE", raising=False)
-    client = TestClient(create_app(tmp_path))
-    root = bound_run(client.app.state.passport)
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    root = bound_run(app.state.passport)
     body = {"resource": "staging/checkout", "action": "logs.read", "request_key": "api"}
     auth = {"Authorization": f"Bearer {root['token']}"}
     assert client.post("/api/agent/execute", json=body, headers=auth).json()["rule"] == "PROOF_REQUIRED"

@@ -1,4 +1,3 @@
-import hashlib
 import subprocess
 from types import SimpleNamespace
 

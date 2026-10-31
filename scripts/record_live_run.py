@@ -98,7 +98,7 @@ def main(argv=None):
                 session.wait(timeout=args.timeout)
             except subprocess.TimeoutExpired:
                 session.kill()
-                raise SystemExit(f"The session did not finish within {args.timeout} seconds; partial transcript in {transcript}.")
+                raise SystemExit(f"The session did not finish within {args.timeout} seconds; partial transcript in {transcript}.") from None
 
     # Checkpoint first: it covers a prefix of the evidence exported after it.
     checkpoint = request(gateway, "POST", "/api/checkpoint", console)["checkpoint"]
