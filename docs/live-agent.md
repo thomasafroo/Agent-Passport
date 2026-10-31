@@ -58,6 +58,20 @@ Whatever the model does, the console shows it: the live node and its workers in 
 
 The live agent shares the run's 24-unit pool with the scripted story. If the fork race has already spent it, reset first.
 
+## Record a run
+
+To record a headless session, start the gateway first, then run from the repository root:
+
+```powershell
+python scripts/record_live_run.py --name run4
+```
+
+The script resets the console run and starts a headless Claude Code session whose only tools are the adapter's three. It issues the live passport as soon as the adapter registers its key, waits for the session to finish, and exports the run's evidence. Add `--require-mode 1password-cli` to refuse to record unless the gateway resolves its credential through 1Password.
+
+The transcript and evidence go to `artifacts/live-runs/`, which Git ignores. The script reports whether any passport token appears in the transcript. Review both files before copying anything into `docs/live-runs/`.
+
+A headless client sends its first tool call immediately after starting the adapter, before a passport bound to the adapter's new key can exist. The script sets `PASSPORT_WAIT_FOR_PASSPORT=120`, so the adapter waits up to that many seconds for the token file. The default is no wait.
+
 ## Security notes
 
 - **A copied token file is useless.** The adapter never returns a token, and tests check every tool output for them. A client that can read files, such as Claude Code in this repository, could still read `.state/live-agent.token`, but the gateway rejects it without a proof from the adapter's in-memory key (`PROOF_REQUIRED`), and a proof signed with any other key fails (`PROOF_INVALID`). Each denied attempt is recorded in the ledger.

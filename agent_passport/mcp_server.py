@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 import urllib.error
 import urllib.request
@@ -49,12 +50,15 @@ class Gateway:
 
 
 class Adapter:
-    def __init__(self, gateway, token_path, holder=None):
+    def __init__(self, gateway, token_path, holder=None, wait_for_passport=0.0):
         self.gateway, self.token_path = gateway, Path(token_path)
         self.key_path = self.token_path.with_name("live-agent.pub")
         self.holder = holder or Holder()  # private key exists only in this process
         self.workers = {}  # worker name -> (token, holder); never returned to the model
         self._loaded = None
+        # Headless clients send their first tool call right after starting the adapter, before an
+        # operator can issue a passport bound to its new key. Optionally wait for one to appear.
+        self.wait_for_passport = max(0.0, min(float(wait_for_passport), 300.0))
 
     def register(self):
         """Publish this process's public holder key so the console can bind the live passport to it."""
@@ -63,11 +67,18 @@ class Adapter:
         temporary.write_text(self.holder.public_key, encoding="ascii")
         os.replace(temporary, self.key_path)
 
-    def _own_token(self):
+    def _read_token(self):
         try:
-            token = self.token_path.read_text(encoding="ascii").strip()
+            return self.token_path.read_text(encoding="ascii").strip()
         except OSError:
-            token = ""
+            return ""
+
+    def _own_token(self):
+        token = self._read_token()
+        deadline = time.monotonic() + self.wait_for_passport
+        while not token and time.monotonic() < deadline:
+            time.sleep(0.25)
+            token = self._read_token()
         if token != self._loaded:
             # A re-issued or withdrawn passport invalidates every worker delegated under the old one.
             self.workers.clear()
@@ -181,7 +192,11 @@ def build(adapter):
 def main():
     state = Path(os.environ.get("PASSPORT_STATE_DIR") or ROOT / ".state")
     gateway = Gateway(os.environ.get("PASSPORT_GATEWAY", "http://127.0.0.1:8787"))
-    adapter = Adapter(gateway, state / "live-agent.token")
+    try:
+        wait = float(os.environ.get("PASSPORT_WAIT_FOR_PASSPORT", "0"))
+    except ValueError:
+        wait = 0.0
+    adapter = Adapter(gateway, state / "live-agent.token", wait_for_passport=wait)
     adapter.register()
     build(adapter).run()
 

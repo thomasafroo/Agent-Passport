@@ -27,7 +27,7 @@ Remove-Variable bytes
 python -m agent_passport
 ```
 
-Run the check and the server in the same shell that holds these variables. If `op` is not recognized right after installation, the shell predates the PATH change: open a new terminal, or reload PATH in the current one:
+Run the check and the server in the same shell that holds these variables. With desktop app integration, 1Password authorizes each terminal session separately, so sign in from that same terminal; another shell, or a coding agent's shell, does not inherit the authorization. If `op` is not recognized right after installation, the shell predates the PATH change: open a new terminal, or reload PATH in the current one:
 
 ```powershell
 $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')

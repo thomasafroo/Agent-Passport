@@ -126,3 +126,22 @@ def test_mcp_server_exposes_only_three_tools(live):
     _, _, adapter, _ = live
     names = sorted(t.name for t in asyncio.run(build(adapter).list_tools()))
     assert names == ["delegate_worker", "my_passport", "perform_operation"]
+
+
+def test_adapter_can_wait_for_a_passport_issued_after_it_starts(tmp_path, monkeypatch):
+    import threading
+    import time
+    monkeypatch.delenv("PASSPORT_OP_REFERENCE", raising=False)
+    client = TestClient(create_app(tmp_path))
+    console = {"x-passport-console": client.get("/api/session").json()["console_token"]}
+    impatient = Adapter(InProcessGateway(client), tmp_path / "live-agent.token")
+    with pytest.raises(Exception, match="No live agent passport"):
+        impatient.passport()
+    adapter = Adapter(InProcessGateway(client), tmp_path / "live-agent.token", wait_for_passport=10)
+    adapter.register()
+    issuer = threading.Timer(0.5, lambda: client.post("/api/live/issue", headers=console))
+    issuer.start()
+    started = time.monotonic()
+    assert adapter.operate("staging/checkout", "logs.read")["state"] == "completed"
+    assert time.monotonic() - started >= 0.4
+    issuer.join()
