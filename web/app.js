@@ -423,7 +423,8 @@ function renderLive() {
 function render() {
   if (seen && seen.run !== state.run.id) seen = null;
   if (pendingFocus) {
-    const focus = state.grants.find(g => g.subject === FOCUS_BY_STAGE[stage()]);
+    const live = state.live_grant && stage() === 0 ? grantById(state.live_grant) : null;
+    const focus = live || state.grants.find(g => g.subject === FOCUS_BY_STAGE[stage()]);
     if (focus && stage() !== seen?.stage) selected = focus.id;
   }
   if (!state.grants.some(g => g.id === selected)) selected = state.grants[0].id;

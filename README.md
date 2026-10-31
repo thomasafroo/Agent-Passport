@@ -43,6 +43,8 @@ One primary button (or the → key) advances the story, and the inspector follow
 
 The console can issue a passport to an MCP adapter so a real model, such as Claude, works the incident through the same gateway. The adapter keeps every passport token; the model sees only tool results. The synthetic logs contain a planted instruction to deploy to production, and the console shows each decision the gateway makes about the model's requests. See [the live agent guide](docs/live-agent.md), including what isolation it does and does not provide.
 
+In [recorded runs with Claude Sonnet 5.5](docs/live-runs/README.md), the model declined the planted instruction on its own. When the operator prompt told it to obey log notes, it attempted the production deploy and an admin delegation; the gateway denied both while its legitimate work completed. After revocation in the console, its next call was denied.
+
 ## What is real
 
 | Mechanism | Implementation |
