@@ -74,6 +74,8 @@ In [recorded runs with Claude Sonnet 5.5](docs/live-runs/README.md), the model d
 | 1Password | Optional real `op read` credential resolver connected to an authenticated synthetic service |
 | Live model | Optional MCP adapter: a real model acts through a passport it never holds; the gateway decides every call |
 
+Operator approvals gate staging config writes before dispatch, and owner deprovisioning voids existing grants online; both produce signed statements checked by the Python and Rust evidence verifiers.
+
 The story's agents are **scripted**, and logs/code/patches come from a **synthetic service**. A connected live model is real, but its tools reach only that same synthetic service. No production deployment exists. The malicious tool output is a deterministic adversarial fixture, not an evaluation of an LLM's prompt-injection resistance. The test demonstrates what the authorization boundary does when a worker makes an unauthorized request.
 
 ## Verify the claims
@@ -107,7 +109,7 @@ The verifier then rejects a removed suffix or a rewritten prefix, and reports ho
 
 ## Operator commands
 
-Run these from the repository root. Each script reads `.state/` unless you pass `--state-dir` or set `PASSPORT_STATE_DIR`.
+Run these from the repository root unless noted. State-management scripts read `.state/` unless you pass `--state-dir` or set `PASSPORT_STATE_DIR`; verifiers read explicit evidence files, while key generation and fuzzing do not use the gateway's state.
 
 | Task | Command |
 |---|---|
@@ -119,6 +121,13 @@ Run these from the repository root. Each script reads `.state/` unless you pass 
 | Re-run the simulated revocation experiment | `python scripts/revocation_experiment.py` |
 | Record a live-model session against a running gateway | `python scripts/record_live_run.py --name NAME [--require-mode synthetic\|1password-cli]` |
 | Check the live 1Password path | `python scripts/check_1password.py` (see [1Password setup](docs/1password.md)) |
+| List pending approvals | `python scripts/approve.py` |
+| Approve or deny one operation | `python scripts/approve.py OPERATION_ID --decision approve\|deny --reason "Staging change reviewed against the ticket."` |
+| List or provision accountable owners | `python scripts/owners.py list` or `python scripts/owners.py add USER_NAME --display-name NAME` |
+| Deactivate or reactivate an owner | `python scripts/owners.py deactivate OWNER` or `python scripts/owners.py reactivate OWNER` (old grants stay void) |
+| Generate an issuer key to store in 1Password | `python scripts/generate_issuer_key.py` (prints the private key once; keep its output private) |
+| Fuzz verifier and identity parsing | `python scripts/fuzz.py all --examples 20000` |
+| Verify evidence independently in Rust | In `verifier-rs/`: `cargo run --release -- EVIDENCE.json --public-key-file KEY.txt [--checkpoints WITNESS.jsonl]` |
 
 `record_live_run.py` starts a headless `claude` session and uses API credit; its transcript and evidence go to `artifacts/live-runs/`. [Live agent guide: record a run](docs/live-agent.md#record-a-run).
 
@@ -131,6 +140,15 @@ The same operator actions are available to the console session, never to agent p
 | `POST /api/operations/{oid}/lookup` | Reconcile from the upstream's effect record |
 | `POST /api/checkpoint` | Sign a checkpoint of the current run |
 | `GET /api/evidence` | Export the current run's evidence |
+| `GET /api/approvals` | List waiting and approved operations in the current run |
+| `POST /api/approvals/{oid}` | Approve or deny, body `{"decision": "approve"\|"deny", "reason": ...}`; dispatch still requires the agent's retry |
+| `POST /api/demo/config` | Script a config request, or retry its pending operation |
+| `GET /api/state` | Inspect the current run, its owner and the owners list |
+| `POST /api/owners/{owner_id}/deactivate` | Deprovision an owner across their runs |
+| `GET /scim/v2/Users` and `GET /scim/v2/Users/{id}` | List or read owners; limited `userName eq "..."` filter |
+| `POST /scim/v2/Users` | Provision with the SCIM User `schemas` envelope, `userName`, `displayName` and optional `externalId` |
+| `PATCH /scim/v2/Users/{id}` | Replace `active` only; reactivation permits new issuance |
+| `DELETE /scim/v2/Users/{id}` | Deprovision while retaining the owner record |
 
 Each needs the `X-Passport-Console` header from `GET /api/session`. Save evidence with `Invoke-WebRequest -OutFile` or `curl -o`; re-encoding the JSON can change numbers and break the hashes.
 
@@ -189,6 +207,8 @@ docs/                     Design, threat model, demo script, integration setup
 ```
 
 ## Boundaries and next research questions
+
+Owner records and the SCIM-shaped routes do not verify human identity or integrate an identity provider; the 1Password SDK and issuer-key lookup remain mocked-only, and approvals have not been exercised with a live model.
 
 The current model counts fixed-cost operations, not dollars or actual provider usage. It shares a root pool rather than allocating child sub-budgets. Holder binding stops a copied token from being used, but not a compromised holder: a process that can read the holder's memory can take its key. Revocation linearizes at the database transaction; already dispatched work may still finish. Unknown or crash-interrupted operations deliberately retain capacity until a local operator reconciles them with a signed, recorded decision (`python scripts/reconcile.py`), stated by hand or looked up in the fixture upstream's effect record (`--lookup`). Nothing settles them automatically, and a reconciliation receipt attests the operator's statement or the upstream's report, not independent proof of the effect.
 

@@ -72,6 +72,12 @@ The transcript and evidence go to `artifacts/live-runs/`, which Git ignores. The
 
 A headless client sends its first tool call immediately after starting the adapter, before a passport bound to the adapter's new key can exist. The script sets `PASSPORT_WAIT_FOR_PASSPORT=120`, so the adapter waits up to that many seconds for the token file. The default is no wait.
 
+## Operator approvals with live models
+
+When `perform_operation` requests `config.write` on `staging/checkout`, the adapter reports that human approval is pending, nothing has run, and one unit is held. The operator decides in the Approvals panel or with `scripts/approve.py`. The model then calls the tool again with the same resource, action and worker arguments: the adapter reuses the pending idempotency key and supplies a fresh holder proof. Approval runs that operation once; denial, lapse, revocation or owner deprovisioning prevents it from running. A restarted adapter loses its in-memory pending keys, so this retry behavior assumes the same adapter session.
+
+This flow is covered by automated, scripted MCP adapter tests. No approval flow has been recorded with a live model.
+
 ## Security notes
 
 - **A copied token file is useless.** The adapter never returns a token, and tests check every tool output for them. A client that can read files, such as Claude Code in this repository, could still read `.state/live-agent.token`, but the gateway rejects it without a proof from the adapter's in-memory key (`PROOF_REQUIRED`), and a proof signed with any other key fails (`PROOF_INVALID`). Each denied attempt is recorded in the ledger.
