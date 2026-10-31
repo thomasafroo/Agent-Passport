@@ -179,9 +179,9 @@ class SharedBudgetMachine(RuleBasedStateMachine):
     def start(self, budget):
         self.directory = tempfile.mkdtemp(prefix="passport-machine-")
         self.now = 1_000_000.0
-        # Approval gating is modelled separately; here every catalog pair dispatches directly.
-        self.engine = Passport(self.directory, clock=lambda: self.now, approval_required=())
+        self.engine = Passport(self.directory, clock=lambda: self.now)
         root = self.engine.create_run(budget=budget, ttl=3600)
+        self.owner_id, self.owner_cut = root["grant"]["owner"], False
         self.run_id, self.budget, self.expires = root["run_id"], budget, root["grant"]["expires"]
         self.agents = [{"token": root["token"], "id": root["grant"]["id"], "parent": None, "pairs": set(CATALOG), "depth": 0}]
         self.revoked = set()
@@ -202,10 +202,11 @@ class SharedBudgetMachine(RuleBasedStateMachine):
             if self.expires <= self.now:
                 return "GRANT_EXPIRED"
             index = self.agents[index]["parent"]
-        return None
+        return "OWNER_DEPROVISIONED" if self.owner_cut else None
 
     def expected_reservation(self, agent, key, pair):
         """('denied', rule) | ('duplicate', op id) | ('new', None), in the engine's check order."""
+        self.sweep_model()
         rule = self.chain_rule(agent)
         if rule:
             return "denied", rule
@@ -222,9 +223,58 @@ class SharedBudgetMachine(RuleBasedStateMachine):
 
     def record_new(self, agent, key, pair, oid):
         assert oid not in self.ops
-        self.ops[oid] = {"agent": agent, "key": key, "pair": pair, "state": "reserved", "created": self.now}
+        self.ops[oid] = {"agent": agent, "key": key, "pair": pair,
+                         "state": "awaiting_approval" if pair == ("staging/checkout", "config.write") else "reserved", "created": self.now}
         self.by_key[(agent, key)] = oid
         self.reserved += 1
+
+    def sweep_model(self):
+        for op in self.ops.values():
+            if op["state"] not in ("awaiting_approval", "approved"):
+                continue
+            if self.chain_rule(op["agent"]):
+                op["state"] = "cancelled"
+            elif ((op["state"] == "approved" and self.now - op["approved_at"] >= 300)
+                  or (op["state"] == "awaiting_approval" and self.now - op["created"] >= 900)):
+                op["state"] = "approval_lapsed"
+            else:
+                continue
+            self.reserved -= 1
+
+    @precondition(lambda self: self.ops)
+    @rule(data=st.data(), decision=st.sampled_from(["approve", "deny"]))
+    def decide(self, data, decision):
+        oid = data.draw(st.sampled_from(list(self.ops)), label="operation")
+        self.sweep_model()
+        op = self.ops[oid]
+        error = denial(lambda: self.engine.decide_approval(oid, decision, "Operator reviewed the staging change."))
+        if op["state"] != "awaiting_approval":
+            assert error == "OPERATION_STATE"
+        else:
+            assert error is None
+            op["state"] = "approved" if decision == "approve" else "approval_denied"
+            op["approved_at"] = self.now
+            if decision == "deny":
+                self.reserved -= 1
+
+    @rule()
+    def list_approvals(self):
+        self.sweep_model()
+        assert {op["id"] for op in self.engine.pending_approvals()} == {
+            oid for oid, op in self.ops.items() if op["state"] in ("awaiting_approval", "approved")}
+
+    @precondition(lambda self: not self.owner_cut)
+    @rule()
+    def deprovision(self):
+        self.engine.deprovision_owner(self.owner_id)
+        self.owner_cut = True
+        self.sweep_model()
+
+    @precondition(lambda self: self.owner_cut)
+    @rule()
+    def reactivate(self):
+        self.engine.reactivate_owner(self.owner_id)
+        # The old root's epoch stays void; new issuance is outside this single-root model.
 
     def apply_settlement(self, oid, outcome):
         self.ops[oid]["state"] = outcome
@@ -284,12 +334,17 @@ class SharedBudgetMachine(RuleBasedStateMachine):
         except Denied as error:
             assert (kind, value) == ("denied", error.rule)
             return
-        if kind == "duplicate":
+        if kind == "duplicate" and self.ops[value]["state"] != "approved":
             assert result["duplicate"] and result["operation_id"] == value
             return
-        assert kind == "new"
         oid = result["operation_id"]
-        self.record_new(agent, key, pair, oid)
+        if kind == "new":
+            self.record_new(agent, key, pair, oid)
+            if self.ops[oid]["state"] == "awaiting_approval":
+                assert result["state"] == "awaiting_approval"
+                return
+        else:
+            assert kind == "duplicate" and oid == value and self.ops[oid]["state"] == "approved"
         self.dispatches[oid] += 1
         self.ops[oid]["state"] = "dispatched"
         settled = {"ok": "completed", "timeout": "unknown", "reject": "failed"}[outcome]
@@ -302,14 +357,16 @@ class SharedBudgetMachine(RuleBasedStateMachine):
         oid = data.draw(st.sampled_from(list(self.ops)), label="operation")
         op = self.ops[oid]
         rule = self.chain_rule(op["agent"])
+        if rule is None and op["state"] == "approved" and self.now - op["approved_at"] >= 300:
+            rule = "APPROVAL_LAPSED"
         try:
             dispatched = self.engine.dispatch(oid)
         except Denied as error:
-            assert op["state"] == "reserved" and error.rule == rule
-            op["state"] = "cancelled"
+            assert op["state"] in ("reserved", "approved") and error.rule == rule
+            op["state"] = "approval_lapsed" if rule == "APPROVAL_LAPSED" else "cancelled"
             self.reserved -= 1
             return
-        assert dispatched == (op["state"] == "reserved" and rule is None)
+        assert dispatched == (op["state"] in ("reserved", "approved") and rule is None)
         if dispatched:
             op["state"] = "dispatched"
             self.dispatches[oid] += 1
@@ -368,7 +425,7 @@ class SharedBudgetMachine(RuleBasedStateMachine):
         assert run["spent"] + run["reserved"] <= run["budget"]
         assert (run["spent"], run["reserved"]) == (self.spent, self.reserved)
         # Unknown outcomes and unsettled reservations keep holding their unit.
-        assert run["reserved"] == sum(states[s] for s in UNRESOLVED)
+        assert run["reserved"] == sum(states[s] for s in (*UNRESOLVED, "awaiting_approval", "approved"))
         assert run["spent"] == states["completed"] + states["reconciled_completed"]
         assert states == Counter(op["state"] for op in self.ops.values())
 

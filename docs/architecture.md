@@ -64,8 +64,8 @@ stateDiagram-v2
     awaiting_approval --> approval_lapsed: no decision in time / refund
     approved --> dispatched: agent retry, chain + proof recheck, approval consumed
     approved --> approval_lapsed: approval unused in time / refund
-    awaiting_approval --> cancelled: chain revoked or expired / refund
-    approved --> cancelled: chain revoked or expired / refund
+    awaiting_approval --> cancelled: chain revoked, expired or owner deprovisioned / refund
+    approved --> cancelled: chain revoked, expired or owner deprovisioned / refund
     reserved --> cancelled: revoked, expired or owner deprovisioned at dispatch / refund
     reserved --> dispatched: ancestor recheck succeeds
     dispatched --> completed: known success / reserved to spent
@@ -165,6 +165,7 @@ Deprovisioning is an online fact, like revocation. `_chain` reads the root's own
 
 ```text
 reserved, not dispatched   cancelled at dispatch, unit returned once
+awaiting_approval/approved cancelled in the deprovisioning transaction, unit returned once
 dispatched                 keeps its unit; the trusted executor may still settle it
 unknown                    keeps its unit until an operator reconciles it
 new reservation/delegation denied, OWNER_DEPROVISIONED
@@ -172,6 +173,8 @@ new root for the owner     denied while the owner is inactive
 ```
 
 Deactivation commits under the same SQLite write lock as reservations, so no reservation committed after it can succeed for that owner's grants.
+
+Deactivation also withdraws that owner's waiting and approved operations under the same lock. A later decision, retry, or reactivation cannot revive them or return their units again. Approval racing deactivation either commits before the cut and is then withdrawn, or sees an already cancelled operation. Dispatch committed before the cut still retains its unit and may complete.
 
 Reactivation does not restore old grants. Each deactivation increments the owner's epoch, and a root records the epoch it was issued under. After reactivation the owner can be issued new roots; every grant issued before the deactivation stays void, even if no time has passed. Restoring access means new issuance. Resetting the console re-provisions the default owner if it was deactivated, with its own signed receipt, and issues a new run; it never reactivates any other owner.
 

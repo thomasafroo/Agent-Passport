@@ -904,6 +904,11 @@ class Passport:
                 db.execute("UPDATE owners SET active=0, epoch=epoch+1, deprovisioned_at=?, updated=? WHERE id=?", (now, now, owner_id))
             o = db.execute("SELECT * FROM owners WHERE id=?", (owner_id,)).fetchone()
             receipt = self._lifecycle(db, "reactivated" if active else "deprovisioned", o, actor)
+            if not active:
+                # These operations never dispatched. Cancel and return their units under
+                # the same lock as the owner cut, before any later approval or retry.
+                for root in db.execute("SELECT run_id FROM grants WHERE owner=? AND parent IS NULL", (owner_id,)).fetchall():
+                    self._sweep_approvals(db, root["run_id"])
             return {"owner": self._owner_view(o), "receipt": receipt}
 
     def deprovision_owner(self, owner_id, actor="Local operator"):
