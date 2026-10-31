@@ -130,6 +130,11 @@ def create_app(directory=None):
             passport.revoke(gid)
             return demo.snapshot()
 
+    @app.post("/api/live/issue")
+    def issue_live(request: Request):
+        console(request)
+        return demo.issue_live()
+
     @app.get("/api/evidence")
     def evidence(request: Request):
         console(request)
@@ -139,6 +144,10 @@ def create_app(directory=None):
     @app.post("/api/agent/delegate")
     def delegate(body: Delegation, request: Request):
         return passport.delegate(bearer(request), body.subject, [s.model_dump() for s in body.scopes], body.expires)
+
+    @app.get("/api/agent/passport")
+    def own_passport(request: Request):
+        return passport.inspect(bearer(request))
 
     @app.post("/api/agent/execute")
     def execute(body: Operation, request: Request):

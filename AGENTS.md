@@ -23,5 +23,7 @@ Use the repository's `.venv` when available. No frontend build is required. Relo
 - `.state/`, credentials, bearer tokens, and private keys must stay out of Git and user-facing output.
 - Keep live 1Password verification separate from mocked CLI tests. Do not claim it ran unless it did.
 - Receipts attest issuer statements. Unanchored event hashes do not prove completeness.
+- The MCP adapter must never return a passport token, for the live agent or any worker, in a tool result. Live-agent tokens go to `.state/live-agent.token`, never to the browser.
+- Do not describe a live-model session as recorded unless one was actually run with a model; scripted MCP clients are not models. Recorded sessions live in `docs/live-runs/` with their signed evidence.
 
 Read `docs/architecture.md` and `docs/threat-model.md` before changing enforcement. Add regression tests for security behavior changes and report measured results without turning local timings into distributed guarantees.

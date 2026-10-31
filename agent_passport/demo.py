@@ -1,10 +1,13 @@
 """Deterministic adversarial fixtures. No LLM is used or implied."""
 from concurrent.futures import ThreadPoolExecutor
+import os
 import threading
 import time
 import uuid
 
-from .core import Denied
+from .core import Denied, CATALOG
+
+LIVE_SUBJECT = "Claude (live)"
 
 
 LOGS = [{"resource": "staging/checkout", "action": "logs.read"}]
@@ -18,8 +21,39 @@ class Demo:
         self.lock = threading.RLock()
         self.reset()
 
+    @property
+    def live_token_path(self):
+        return self.passport.directory / "live-agent.token"
+
+    def _retire_live(self):
+        # A reset must not leave a live agent acting in a run the console no longer shows.
+        live = getattr(self, "live", None)
+        if live:
+            self.passport.revoke(live["grant"]["id"])
+        self.live = None
+        self.live_token_path.unlink(missing_ok=True)
+
+    def issue_live(self):
+        """Delegate a passport for a real model's MCP adapter. The token goes to a local file, never the browser."""
+        with self.lock:
+            if self.live and self.live["grant"]["id"] in {g["id"] for g in self.passport.snapshot(self.run_id)["grants"] if g["state"] == "active"}:
+                raise Denied("LIVE_AGENT_ACTIVE", "A live agent passport is already active in this run. Revoke it or reset first.")
+            parent = self.agents["Coordinator"]
+            self.live = self.passport.delegate(parent["token"], LIVE_SUBJECT,
+                                               [{"resource": r, "action": a} for r, a in sorted(CATALOG)], parent["grant"]["expires"])
+            path = self.live_token_path
+            temporary = path.with_suffix(".tmp")
+            temporary.unlink(missing_ok=True)
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="ascii") as f:
+                f.write(self.live["token"])
+            os.replace(temporary, path)
+            self.message = "A live agent passport was issued. Connect an MCP client; every tool call it makes appears here."
+            return self.snapshot()
+
     def reset(self):
         with self.lock:
+            self._retire_live()
             self.root = self.passport.create_run()
             self.run_id = self.root["run_id"]
             self.agents = {"Coordinator": self.root}
@@ -32,7 +66,8 @@ class Demo:
         with self.lock:
             return {**self.passport.snapshot(self.run_id), "phase": self.phase,
                     "message": self.message, "metrics": self.metrics,
-                    "credential_mode": self.executor.provider.mode, "scripted": True}
+                    "credential_mode": self.executor.provider.mode, "scripted": True,
+                    "live_grant": self.live["grant"]["id"] if self.live else None}
 
     def _child(self, parent, name, scopes):
         p = self.agents[parent]

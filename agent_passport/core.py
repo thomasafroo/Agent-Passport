@@ -338,5 +338,23 @@ class Passport:
         finally:
             db.close()
 
+    def inspect(self, token):
+        """An agent may read its own claims and its pool's balance. Read-only; never returns a token."""
+        db = self.connect()
+        try:
+            db.execute("BEGIN")
+            g = self._authenticate(db, token)
+            try:
+                self._chain(db, g)
+                state = "active"
+            except Denied as e:
+                state = e.rule
+            run = db.execute("SELECT budget,spent,reserved FROM runs WHERE id=?", (g["run_id"],)).fetchone()
+            return {"grant": self._claims(g), "state": state,
+                    "budget": {"limit": run["budget"], "spent": run["spent"], "reserved": run["reserved"],
+                               "available": run["budget"] - run["spent"] - run["reserved"]}}
+        finally:
+            db.close()
+
     def evidence(self, run_id):
         return self.snapshot(run_id, include_receipts=True)
