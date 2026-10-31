@@ -369,7 +369,7 @@ function renderRace() {
 }
 
 /* ---------- Ledger ---------- */
-const KIND_LABEL = { issued: "Issued", delegated: "Delegated", reserved: "Reserved", completed: "Allowed", denied: "Denied", revoked: "Revoked", injected: "Untrusted input" };
+const KIND_LABEL = { issued: "Issued", delegated: "Delegated", reserved: "Reserved", completed: "Allowed", denied: "Denied", revoked: "Revoked", injected: "Untrusted input", unknown: "Outcome unknown", reconciled: "Reconciled" };
 function renderEvents() {
   const container = $("events"); container.replaceChildren();
   const wanted = e => filter === "all" || (filter === "denied" ? e.kind === "denied" : ["denied", "revoked", "injected"].includes(e.kind));

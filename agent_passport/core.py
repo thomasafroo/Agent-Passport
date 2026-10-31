@@ -25,6 +25,12 @@ POLICY = "passport/1"
 CATALOG = {("staging/checkout", "logs.read"), ("repo/checkout", "code.read"),
            ("repo/checkout", "patch.propose")}
 PROOF_WINDOW = 60  # seconds a holder proof's timestamp may differ from the gateway clock
+# A reserved or dispatched operation younger than this may still be running in an executor.
+# This is an in-flight guard for the operator, not a refund timer: nothing settles without a decision.
+STRANDED_AFTER = 300
+UNRESOLVED = ("reserved", "dispatched", "unknown")
+RECONCILED = {"completed": ("reconciled_completed", "RECONCILED_COMPLETED"),
+              "not_executed": ("reconciled_not_executed", "RECONCILED_NOT_EXECUTED")}
 
 
 def canonical(value):
@@ -159,6 +165,9 @@ class Passport:
               CREATE TABLE IF NOT EXISTS events (
                 seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL,
                 body TEXT NOT NULL, hash TEXT NOT NULL);
+              CREATE TABLE IF NOT EXISTS reconciliations (
+                operation_id TEXT PRIMARY KEY REFERENCES operations(id),
+                run_id TEXT NOT NULL REFERENCES runs(id), receipt TEXT NOT NULL);
               CREATE TABLE IF NOT EXISTS proofs (
                 grant_id TEXT NOT NULL REFERENCES grants(id), jti TEXT NOT NULL,
                 expires REAL NOT NULL, PRIMARY KEY(grant_id, jti));
@@ -424,6 +433,66 @@ class Passport:
             self.event(db, g["run_id"], outcome, g["id"], {"completed": "EXECUTED", "failed": "REFUNDED", "unknown": "OUTCOME_UNKNOWN"}[outcome], {"completed": "One operation completed. One unit consumed.", "failed": "Known pre-effect failure. Reserved unit returned.", "unknown": "Outcome uncertain. Unit retained; automatic retry disabled."}[outcome], operation_id=oid)
             return {"operation_id": oid, "state": outcome, "result": result, "receipt": receipt}
 
+    def unresolved(self, run_id=None):
+        """Operations still holding a unit: unknown outcomes and crash-stranded reservations."""
+        db = self.connect()
+        try:
+            rows = db.execute(f"""SELECT o.id, o.grant_id, g.run_id, g.subject, o.resource, o.action, o.state, o.created
+                                  FROM operations o JOIN grants g ON g.id=o.grant_id
+                                  WHERE o.state IN ({",".join("?" * len(UNRESOLVED))}) AND (? IS NULL OR g.run_id=?)
+                                  ORDER BY o.created""", (*UNRESOLVED, run_id, run_id)).fetchall()
+            now = self.clock()
+            return [{**dict(r), "age_seconds": round(now - r["created"], 1),
+                     "reconcilable": r["state"] == "unknown" or now - r["created"] >= STRANDED_AFTER} for r in rows]
+        finally:
+            db.close()
+
+    def reconcile(self, oid, outcome, reason, operator="Local operator"):
+        """Trusted operator decision about an operation whose effect the executor could not settle.
+
+        Never exposed on the agent API and never invoked on a timer. The operator attests what
+        happened upstream; the issuer signs that statement. The receipt records a decision,
+        not proof of the upstream effect.
+        """
+        if outcome not in RECONCILED:
+            raise Denied("OUTCOME_INVALID", "Reconcile as completed or not_executed.")
+        if not isinstance(reason, str) or not 10 <= len(reason.strip()) <= 500:
+            raise Denied("REASON_REQUIRED", "Record the basis for this decision in 10 to 500 characters.")
+        if not isinstance(operator, str) or not 1 <= len(operator.strip()) <= 60:
+            raise Denied("OPERATOR_INVALID", "Name the deciding operator in 1 to 60 characters.")
+        state, rule = RECONCILED[outcome]
+        with self.transaction() as db:
+            op = db.execute("SELECT * FROM operations WHERE id=?", (oid,)).fetchone()
+            if not op:
+                raise Denied("OPERATION_UNKNOWN", "Unknown operation.")
+            if op["state"] not in UNRESOLVED:
+                raise Denied("OPERATION_STATE", "Only an operation still holding a unit can be reconciled, and only once.")
+            now = self.clock()
+            if op["state"] != "unknown" and now - op["created"] < STRANDED_AFTER:
+                raise Denied("OPERATION_IN_FLIGHT", f"A {op['state']} operation may still be running. Wait {STRANDED_AFTER} seconds from reservation before deciding it was stranded.")
+            g = db.execute("SELECT * FROM grants WHERE id=?", (op["grant_id"],)).fetchone()
+            chain, cursor = [], g
+            while cursor:
+                chain.append(cursor["id"])
+                cursor = db.execute("SELECT * FROM grants WHERE id=?", (cursor["parent"],)).fetchone() if cursor["parent"] else None
+            body = {"type": "reconciliation", "operation_id": oid, "grant_id": g["id"], "run_id": g["run_id"],
+                    "chain": chain, "request_digest": op["digest"], "resource": op["resource"], "action": op["action"],
+                    "previous_state": op["state"], "outcome": state, "reason": reason.strip(),
+                    "decided_by": operator.strip(), "policy": POLICY, "cost": int(outcome == "completed"), "time": now}
+            receipt = {"body": body, "signature": b64(self.key.sign(canonical(body)))}
+            # The guarded update makes a concurrent dispatch, settlement or second decision impossible.
+            changed = db.execute(f"UPDATE operations SET state=? WHERE id=? AND state IN ({','.join('?' * len(UNRESOLVED))})",
+                                 (state, oid, *UNRESOLVED)).rowcount
+            if not changed:
+                raise Denied("OPERATION_STATE", "Only an operation still holding a unit can be reconciled, and only once.")
+            db.execute("INSERT INTO reconciliations VALUES(?,?,?)", (oid, g["run_id"], canonical(receipt).decode()))
+            db.execute("UPDATE runs SET reserved=reserved-1,spent=spent+? WHERE id=?", (int(outcome == "completed"), g["run_id"]))
+            verdict = "Unit consumed." if outcome == "completed" else "Unit returned to the shared pool."
+            self.event(db, g["run_id"], "reconciled", g["id"], rule,
+                       f"{operator.strip()} decided a {op['state']} operation {state.replace('reconciled_', '').replace('_', ' ')}. {verdict} Basis: {reason.strip()}",
+                       operation_id=oid)
+            return {"operation_id": oid, "state": state, "receipt": receipt}
+
     def snapshot(self, run_id, include_receipts=False):
         db = self.connect()
         try:
@@ -443,6 +512,7 @@ class Passport:
             result = {"run": dict(run), "grants": grants, "events": events, "public_key": self.public_key, "policy": POLICY, "server_time": self.clock()}
             if include_receipts:
                 result["receipts"] = [json.loads(r[0]) for r in db.execute("SELECT receipt FROM operations WHERE grant_id IN (SELECT id FROM grants WHERE run_id=?) AND receipt IS NOT NULL", (run_id,))]
+                result["reconciliations"] = [json.loads(r[0]) for r in db.execute("SELECT receipt FROM reconciliations WHERE run_id=? ORDER BY rowid", (run_id,))]
             return result
         finally:
             db.close()

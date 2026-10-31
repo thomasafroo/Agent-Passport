@@ -23,8 +23,15 @@ def verify(evidence, pinned_key):
             raise ValueError("Invalid receipt signature")
         if receipt["body"]["run_id"] != evidence["run"]["id"]:
             raise ValueError("Receipt belongs to another run")
-    return {"valid": True, "events":len(evidence["events"]), "receipts":len(evidence["receipts"]), "head":previous,
-            "limitation":"Signatures attest issuer statements, not execution truth. An unanchored event chain cannot prove completeness or prevent wholesale rewriting."}
+    reconciliations = evidence.get("reconciliations", [])
+    for receipt in reconciliations:
+        if not verify_receipt(receipt, pinned_key) or receipt["body"].get("type") != "reconciliation":
+            raise ValueError("Invalid reconciliation signature")
+        if receipt["body"]["run_id"] != evidence["run"]["id"]:
+            raise ValueError("Reconciliation belongs to another run")
+    return {"valid": True, "events":len(evidence["events"]), "receipts":len(evidence["receipts"]),
+            "reconciliations":len(reconciliations), "head":previous,
+            "limitation":"Signatures attest issuer statements, not execution truth. A reconciliation attests an operator's decision, not the upstream effect. An unanchored event chain cannot prove completeness or prevent wholesale rewriting."}
 
 
 def main():

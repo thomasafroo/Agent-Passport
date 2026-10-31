@@ -55,7 +55,7 @@ In [recorded runs with Claude Sonnet 5.5](docs/live-runs/README.md), the model d
 | Shared budget | SQLite `BEGIN IMMEDIATE` plus a conditional root-pool update and database invariant |
 | Revocation | Full ancestor chain checked at reservation and again at dispatch; no cache |
 | Retry handling | Unique `(grant_id, request_key)` bound to the canonical operation digest |
-| Failure accounting | Known pre-effect failures refunded; unknown outcomes retain the reserved unit |
+| Failure accounting | Known pre-effect failures refunded; unknown outcomes retain the reserved unit until a signed operator reconciliation |
 | Persistence | SQLite WAL plus a persistent issuer key; works across local worker processes |
 | Credential isolation | Executor resolves credentials; passports, browser state, and receipts contain no credential values |
 | Evidence | Hash-linked decision events and independently verifiable signed operation receipts |
@@ -120,12 +120,12 @@ agent_passport/server.py   Local console and token-plus-proof agent API
 agent_passport/mcp_server.py  MCP adapter for a live model; holds passports, never returns them
 web/                      Responsive console; plain JS, CSS, no external assets
 tests/                    Security invariants and HTTP integration tests
-scripts/                  Benchmarks, scenario runner, offline verifier
+scripts/                  Benchmarks, scenario runner, offline verifier, operator reconciliation
 docs/                     Design, threat model, demo script, integration setup
 ```
 
 ## Boundaries and next research questions
 
-The current model counts fixed-cost operations, not dollars or actual provider usage. It shares a root pool rather than allocating child sub-budgets. Holder binding stops a copied token from being used, but not a compromised holder: a process that can read the holder's memory can take its key. Revocation linearizes at the database transaction; already dispatched work may still finish. Unknown or crash-interrupted operations deliberately retain capacity until trusted reconciliation, which this release does not automate.
+The current model counts fixed-cost operations, not dollars or actual provider usage. It shares a root pool rather than allocating child sub-budgets. Holder binding stops a copied token from being used, but not a compromised holder: a process that can read the holder's memory can take its key. Revocation linearizes at the database transaction; already dispatched work may still finish. Unknown or crash-interrupted operations deliberately retain capacity until a local operator reconciles them with a signed, recorded decision (`python scripts/reconcile.py`). Nothing settles them automatically, and a reconciliation receipt attests the operator's statement, not the upstream effect.
 
 The next deeper experiment is revocation under network partitions and stale caches. Other extensions include per-agent signing keys, data-dependency quarantine, external service idempotency, trusted resource-version approvals, and independently anchored audit checkpoints. None is represented as implemented here.

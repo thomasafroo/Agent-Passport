@@ -26,6 +26,9 @@ The browser is the local human operator console. It can issue the scripted root 
 | A stolen key-bound token authorizes nothing without its holder key | Missing, forged, replayed, stale, non-finite, and request-mismatched proof tests; stolen live token file test over HTTP |
 | Delegation cannot drop or redirect holder binding | Bearer-child and swapped-child-key tests |
 | No holder private key reaches disk | State-directory scan for the adapter's private key bytes |
+| Unresolved operations are settled only by an operator decision | Time-advance retention test; agent-API and bearer-token rejection of reconcile routes |
+| A reconciliation applies once and is never re-executed | Concurrent-decision, retry-after-decision, late dispatch and late settlement tests |
+| Reconciliations are signed and verifiable offline | Reconciliation receipt tamper and evidence verifier tests |
 
 ## Explicit non-claims
 
@@ -36,7 +39,7 @@ The browser is the local human operator console. It can issue the scripted root 
 - Signed tokens alone do not revoke anything. Revocation depends on online durable state checks.
 - Already dispatched operations can finish after revocation. Effects cannot be undone.
 - No distributed-cache, network-partition, or clock-skew bound has been established. The server wall clock is trusted.
-- No automatic recovery of crash-stranded reservations is implemented. Capacity stays held rather than risking duplicated effects.
+- No automatic recovery of crash-stranded reservations is implemented. Capacity stays held until an operator reconciles it. A reconciliation receipt records the operator's statement; it is not evidence of the upstream effect, and a wrong decision misstates the budget by one unit.
 - The fixture service has no production side effects. There is no claim of exactly-once execution against an arbitrary external API.
 - No LLM attack-resistance or universal prompt-injection prevention claim is made. The fixture explicitly issues malicious requests to test the gateway, and a live model's choice to follow or ignore the planted log line is not measured or relied on.
 - There is no data-flow tracking or quarantine of downstream outputs from a compromised worker.
