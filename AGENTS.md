@@ -13,6 +13,7 @@ This is a local security research project, not a marketing-only mockup. Preserve
 - Measure: `python scripts/benchmark.py`
 - Reproduce incident: `python scripts/run_scenario.py`
 - Verify evidence offline: `python scripts/verify_evidence.py EVIDENCE.json --public-key-file KEY.txt [--checkpoints WITNESS.jsonl]`
+- Independent Rust verifier (same verdicts; see `docs/rust-verifier.md`): `cargo test` and `cargo run --release -- EVIDENCE.json --public-key-file KEY.txt [--checkpoints WITNESS.jsonl]` in `verifier-rs/`
 - Checkpoint the event chain: `python scripts/checkpoint.py [--run RUN_ID] [--witness PATH]`
 - Reconcile unresolved operations: `python scripts/reconcile.py` lists them; add `OPERATION_ID --outcome completed|not_executed --reason "..."`, or `OPERATION_ID --lookup`
 - Revocation experiment (simulation): `python scripts/revocation_experiment.py`
