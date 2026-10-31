@@ -23,6 +23,10 @@ Environment: Python 3.13.3, Windows 11 build 26200, SQLite WAL on local disk wit
 
 The 100-agent protected experiment took 1,986.91 ms overall. This includes contention and service-fixture execution. The sequential authorization measurement is not a signature-only microbenchmark. The revocation measurement starts before the revoke call and ends after a subsequent request is denied; it includes both transactions. There is no cache propagation delay in this architecture.
 
+## Simulated revocation experiment
+
+A deterministic simulation compares online checks, a fail-open cache, and bounded staleness with budget leases under a network partition. It models a hypothetical edge, not the shipped gateway. See [revocation-experiment.md](revocation-experiment.md).
+
 ## Verification
 
 - **52 automated tests passed** in the fresh environment. One upstream Starlette test-client deprecation warning is present; no test failed.
