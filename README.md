@@ -49,7 +49,8 @@ In [recorded runs with Claude Sonnet 5.5](docs/live-runs/README.md), the model d
 
 | Mechanism | Implementation |
 |---|---|
-| Signed identity | Ed25519-signed bearer passport bound to stored immutable grant claims |
+| Signed identity | Ed25519-signed passport bound to stored immutable grant claims |
+| Holder binding | Optional per-passport holder key; every request needs a fresh, single-use proof from that key, so a stolen token alone is useless |
 | Delegation | Exact resource/action pairs must be a subset of the parent's pairs; expiry cannot extend |
 | Shared budget | SQLite `BEGIN IMMEDIATE` plus a conditional root-pool update and database invariant |
 | Revocation | Full ancestor chain checked at reservation and again at dispatch; no cache |
@@ -115,7 +116,7 @@ See [the live agent guide](docs/live-agent.md), [the threat model](docs/threat-m
 agent_passport/core.py     Signed grants, ancestor checks, transactions, receipts
 agent_passport/broker.py   Credential providers and controlled executor
 agent_passport/demo.py     Reproducible incident and concurrent fork scenarios
-agent_passport/server.py   Local console and bearer-authenticated agent API
+agent_passport/server.py   Local console and token-plus-proof agent API
 agent_passport/mcp_server.py  MCP adapter for a live model; holds passports, never returns them
 web/                      Responsive console; plain JS, CSS, no external assets
 tests/                    Security invariants and HTTP integration tests
@@ -125,6 +126,6 @@ docs/                     Design, threat model, demo script, integration setup
 
 ## Boundaries and next research questions
 
-The current model counts fixed-cost operations, not dollars or actual provider usage. It shares a root pool rather than allocating child sub-budgets. Bearer possession authenticates the passport; there is no proof-of-possession binding to a particular process. Revocation linearizes at the database transaction; already dispatched work may still finish. Unknown or crash-interrupted operations deliberately retain capacity until trusted reconciliation, which this release does not automate.
+The current model counts fixed-cost operations, not dollars or actual provider usage. It shares a root pool rather than allocating child sub-budgets. Holder binding stops a copied token from being used, but not a compromised holder: a process that can read the holder's memory can take its key. Revocation linearizes at the database transaction; already dispatched work may still finish. Unknown or crash-interrupted operations deliberately retain capacity until trusted reconciliation, which this release does not automate.
 
 The next deeper experiment is revocation under network partitions and stale caches. Other extensions include per-agent signing keys, data-dependency quarantine, external service idempotency, trusted resource-version approvals, and independently anchored audit checkpoints. None is represented as implemented here.

@@ -25,6 +25,7 @@ class Delegation(BaseModel):
     subject: str = Field(min_length=1, max_length=60)
     scopes: list[Scope] = Field(min_length=1, max_length=20)
     expires: float
+    holder_key: str | None = Field(default=None, max_length=100)
 
 
 class Operation(Scope):
@@ -100,6 +101,10 @@ def create_app(directory=None):
             raise HTTPException(401, "An agent passport is required.")
         return header[7:]
 
+    def proof(request):
+        # Required only for key-bound passports; the engine decides.
+        return request.headers.get("x-passport-proof")
+
     @app.get("/api/session")
     def bootstrap():
         # Local console is a trusted operator. This is CSRF protection, not user auth.
@@ -143,15 +148,16 @@ def create_app(directory=None):
 
     @app.post("/api/agent/delegate")
     def delegate(body: Delegation, request: Request):
-        return passport.delegate(bearer(request), body.subject, [s.model_dump() for s in body.scopes], body.expires)
+        return passport.delegate(bearer(request), body.subject, [s.model_dump() for s in body.scopes], body.expires,
+                                 body.holder_key, proof(request))
 
     @app.get("/api/agent/passport")
     def own_passport(request: Request):
-        return passport.inspect(bearer(request))
+        return passport.inspect(bearer(request), proof(request))
 
     @app.post("/api/agent/execute")
     def execute(body: Operation, request: Request):
-        return executor.execute(bearer(request), body.resource, body.action, body.request_key)
+        return executor.execute(bearer(request), body.resource, body.action, body.request_key, proof(request))
 
     @app.get("/health")
     def health():

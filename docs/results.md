@@ -21,13 +21,20 @@ Environment: Python 3.13.3, Windows 11 build 26200, SQLite WAL on local disk wit
 | Authorization + reservation | 200 | 3.834 ms | 4.764 ms | 6.759 ms |
 | Revoke call through observed denial | 30 | 6.911 ms | 7.298 ms | 7.507 ms |
 
+After holder binding was added, a run on 2026-10-31 on the same machine measured authorization and reservation with and without a holder proof. The proof is signed before the timer starts, so the bound row includes proof verification and the nonce write, not client signing.
+
+| Measurement, 2026-10-31 | Samples | Median | p95 | Maximum |
+|---|---:|---:|---:|---:|
+| Authorization + reservation, bearer passport | 200 | 3.616 ms | 4.201 ms | 5.264 ms |
+| Authorization + reservation, key-bound passport | 200 | 3.872 ms | 4.682 ms | 5.283 ms |
+
 The 100-agent protected experiment took 1,986.91 ms overall. This includes contention and service-fixture execution. The sequential authorization measurement is not a signature-only microbenchmark. The revocation measurement starts before the revoke call and ends after a subsequent request is denied; it includes both transactions. There is no cache propagation delay in this architecture.
 
 ## Verification
 
 - **52 automated tests passed** in the fresh environment. One upstream Starlette test-client deprecation warning is present; no test failed.
 - The offline verifier accepted a scenario export containing **103 events and 24 signed receipts**.
-- Browser checks exercised the complete incident, concurrent fork test, graph selection, manual branch revocation, and desktop/mobile layouts. After the October 30 console redesign, the full story was re-run and checked at 1440 px, about 1020 px, and phone width; a measured run at 577 px found no page-level horizontal overflow. On phones the delegation tree scrolls inside its own panel. The suite was re-run after the redesign and passes; it had 53 tests at that point, including a regression test for issuer keys that begin with `-`, a case the first remote Windows CI run exposed. The live-agent adapter added 9 more, for 62.
+- Browser checks exercised the complete incident, concurrent fork test, graph selection, manual branch revocation, and desktop/mobile layouts. After the October 30 console redesign, the full story was re-run and checked at 1440 px, about 1020 px, and phone width; a measured run at 577 px found no page-level horizontal overflow. On phones the delegation tree scrolls inside its own panel. The suite was re-run after the redesign and passes; it had 53 tests at that point, including a regression test for issuer keys that begin with `-`, a case the first remote Windows CI run exposed. The live-agent adapter added 9 more, for 62. Holder binding added 26, for 88, all passing on 2026-10-31.
 - A concurrent first-start check exposed a SQLite journal-mode race. Startup now retries the journal-mode transition within a bounded interval; a 12-instance regression test passes.
 - Browser export verification exposed a Windows text-encoding issue. The verifier now reads UTF-8 explicitly, export preserves the server's bytes, and a non-ASCII export regression test passes.
 - A live 1Password account lookup was performed on 2026-10-30 through the desktop app integration (CLI 2.41.1): three scenario operations completed in `1password-cli` mode against a synthetic key in a dedicated test vault. See [1password.md](1password.md#current-verification-status). Service-account authentication has not been exercised. Mocked CLI behavior and secret-safe failure paths are tested separately.

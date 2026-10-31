@@ -94,11 +94,11 @@
     <section class="live" id="live" aria-label="Live agent">
       <div class="live-copy">
         <h2>Put a real model behind the boundary</h2>
-        <p>Issue a passport to the MCP adapter, then connect Claude to it. The adapter keeps the passport; the model only sees tool results. Every call it makes is decided by this gateway and appears in the tree and ledger.</p>
+        <p>Connect Claude to the MCP adapter, then issue it a passport. The passport is bound to a key the adapter keeps in memory, so the token file on disk is useless on its own. The model only sees tool results. Every call it makes is decided by this gateway and appears in the tree and ledger.</p>
       </div>
       <ol class="live-steps">
-        <li><span>Issue a passport for the live agent.</span><button class="primary small" id="issue-live" type="button">Issue live passport</button></li>
-        <li><span>Connect an MCP client, such as Claude Desktop, to this adapter:</span><code id="live-command">python -m agent_passport.mcp_server</code></li>
+        <li><span>Connect an MCP client, such as Claude Desktop, to this adapter. It registers its holder key when it starts:</span><code id="live-command">python -m agent_passport.mcp_server</code></li>
+        <li><span>Issue a passport bound to that key.</span><button class="primary small" id="issue-live" type="button">Issue live passport</button></li>
         <li><span>Ask it to investigate the staging checkout failure. The logs it reads contain a planted instruction.</span></li>
       </ol>
       <p class="live-status" id="live-status" aria-live="polite"></p>

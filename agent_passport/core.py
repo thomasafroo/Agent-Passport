@@ -9,6 +9,7 @@ import base64
 from contextlib import contextmanager
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import sqlite3
@@ -23,6 +24,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat,
 POLICY = "passport/1"
 CATALOG = {("staging/checkout", "logs.read"), ("repo/checkout", "code.read"),
            ("repo/checkout", "patch.propose")}
+PROOF_WINDOW = 60  # seconds a holder proof's timestamp may differ from the gateway clock
 
 
 def canonical(value):
@@ -35,6 +37,52 @@ def b64(value):
 
 def unb64(value):
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def token_digest(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def execute_fields(resource, action, request_key):
+    return {"resource": resource, "action": action, "request_key": request_key}
+
+
+def delegate_fields(subject, scopes, expires, holder_key):
+    if isinstance(expires, (int, float)) and not isinstance(expires, bool):
+        expires = float(expires)
+    return {"subject": subject, "scopes": scopes, "expires": expires, "holder_key": holder_key}
+
+
+def request_digest(operation, fields):
+    return hashlib.sha256(canonical({"op": operation, "fields": fields})).hexdigest()
+
+
+class Holder:
+    """Client side of a key-bound passport. The private key never leaves this object.
+
+    Each request carries a proof signed by this key and bound to the token, the operation,
+    the exact request fields, a timestamp and a single-use nonce.
+    """
+
+    def __init__(self, key=None):
+        self.key = key or Ed25519PrivateKey.generate()
+        self.public_key = b64(self.key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))
+
+    def proof(self, token, operation, fields, now=None, nonce=None):
+        body = {"ath": token_digest(token), "op": operation, "req": request_digest(operation, fields),
+                "iat": time.time() if now is None else now, "jti": nonce or uuid.uuid4().hex}
+        payload = canonical(body)
+        return b64(payload) + "." + b64(self.key.sign(payload))
+
+
+def valid_public_key(value):
+    try:
+        if not isinstance(value, str) or not 40 <= len(value) <= 64:
+            raise ValueError()
+        Ed25519PublicKey.from_public_bytes(unb64(value))
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 class Denied(Exception):
@@ -102,7 +150,7 @@ class Passport:
                 id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
                 parent TEXT REFERENCES grants(id), subject TEXT NOT NULL,
                 scopes TEXT NOT NULL, expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0,
-                depth INTEGER NOT NULL, created REAL NOT NULL);
+                depth INTEGER NOT NULL, created REAL NOT NULL, holder_key TEXT);
               CREATE TABLE IF NOT EXISTS operations (
                 id TEXT PRIMARY KEY, grant_id TEXT NOT NULL REFERENCES grants(id),
                 request_key TEXT NOT NULL, digest TEXT NOT NULL, resource TEXT NOT NULL,
@@ -111,7 +159,18 @@ class Passport:
               CREATE TABLE IF NOT EXISTS events (
                 seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL,
                 body TEXT NOT NULL, hash TEXT NOT NULL);
+              CREATE TABLE IF NOT EXISTS proofs (
+                grant_id TEXT NOT NULL REFERENCES grants(id), jti TEXT NOT NULL,
+                expires REAL NOT NULL, PRIMARY KEY(grant_id, jti));
             """)
+            # Databases created before holder binding lack the column. Their grants stay
+            # unbound bearer passports, so existing tokens keep verifying unchanged.
+            if "holder_key" not in {row[1] for row in db.execute("PRAGMA table_info(grants)")}:
+                try:
+                    db.execute("ALTER TABLE grants ADD COLUMN holder_key TEXT")
+                except sqlite3.OperationalError as error:
+                    if "duplicate column" not in str(error):
+                        raise
         finally:
             db.close()
 
@@ -143,9 +202,13 @@ class Passport:
         db.execute("INSERT INTO events(run_id,body,hash) VALUES(?,?,?)", (run_id, canonical(body).decode(), digest))
 
     def _claims(self, g):
-        return {"v": 1, "issuer": self.public_key, "id": g["id"], "run_id": g["run_id"],
-                "parent": g["parent"], "subject": g["subject"], "scopes": json.loads(g["scopes"]),
-                "expires": g["expires"], "depth": g["depth"]}
+        claims = {"v": 1, "issuer": self.public_key, "id": g["id"], "run_id": g["run_id"],
+                  "parent": g["parent"], "subject": g["subject"], "scopes": json.loads(g["scopes"]),
+                  "expires": g["expires"], "depth": g["depth"]}
+        if g["holder_key"]:
+            # Confirmation key: only the holder of the matching private key may present this passport.
+            claims["cnf"] = g["holder_key"]
+        return claims
 
     def _token(self, g):
         payload = canonical(self._claims(g))
@@ -165,6 +228,40 @@ class Passport:
             return g
         except (InvalidSignature, ValueError, KeyError, TypeError, UnicodeError):
             raise Denied("IDENTITY_INVALID", "The passport signature or issuer is invalid.") from None
+
+    def _verify_proof(self, db, g, token, proof, operation, fields):
+        """A key-bound passport is useless without a fresh proof from its holder key."""
+        if not g["holder_key"]:
+            return
+        if proof is None:
+            raise Denied("PROOF_REQUIRED", "This passport is bound to a holder key. A bearer token alone is not accepted.")
+        try:
+            if not isinstance(proof, str) or len(proof) > 2000:
+                raise ValueError()
+            payload, signature = proof.split(".")
+            raw = unb64(payload)
+            Ed25519PublicKey.from_public_bytes(unb64(g["holder_key"])).verify(unb64(signature), raw)
+            body = json.loads(raw)
+            if not isinstance(body, dict) or set(body) != {"ath", "op", "req", "iat", "jti"}:
+                raise ValueError()
+            iat, jti = body["iat"], body["jti"]
+            if type(iat) not in (int, float) or not math.isfinite(iat):
+                raise ValueError()
+            if not isinstance(jti, str) or not 16 <= len(jti) <= 64:
+                raise ValueError()
+            if body["ath"] != token_digest(token) or body["op"] != operation or body["req"] != request_digest(operation, fields):
+                raise ValueError()
+        except (InvalidSignature, ValueError, KeyError, TypeError, UnicodeError):
+            raise Denied("PROOF_INVALID", "The holder proof does not match this passport's key, token, or request.") from None
+        now = self.clock()
+        if abs(now - iat) > PROOF_WINDOW:
+            raise Denied("PROOF_STALE", f"A holder proof must be signed within {PROOF_WINDOW} seconds of the gateway clock.")
+        # A row past twice the window can never match a fresh proof again.
+        db.execute("DELETE FROM proofs WHERE expires < ?", (now,))
+        try:
+            db.execute("INSERT INTO proofs(grant_id,jti,expires) VALUES(?,?,?)", (g["id"], jti, iat + 2 * PROOF_WINDOW))
+        except sqlite3.IntegrityError:
+            raise Denied("PROOF_REPLAYED", "This holder proof was already used. Sign a new proof for each request.") from None
 
     def _chain(self, db, g):
         chain = []
@@ -189,23 +286,27 @@ class Passport:
         except (ValueError, KeyError, TypeError):
             raise Denied("SCOPE_INVALID", "Provide exact resource/action pairs; no wildcards.") from None
 
-    def create_run(self, budget=24, ttl=3600):
+    def create_run(self, budget=24, ttl=3600, holder_key=None):
         if type(budget) is not int or not 1 <= budget <= 1000 or not 0 < ttl <= 86400:
             raise Denied("LIMIT_INVALID", "Budget must be 1–1000 units; expiry must be within one day.")
+        if holder_key is not None and not valid_public_key(holder_key):
+            raise Denied("HOLDER_KEY_INVALID", "A holder key must be a raw Ed25519 public key.")
         run, grant = "run_" + uuid.uuid4().hex[:12], "g_" + uuid.uuid4().hex[:12]
         scopes = [{"resource": r, "action": a} for r, a in sorted(CATALOG)]
         with self.transaction() as db:
             db.execute("INSERT INTO runs(id,budget,created) VALUES(?,?,?)", (run, budget, self.clock()))
-            db.execute("INSERT INTO grants VALUES(?,?,?,?,?,?,0,0,?)", (grant, run, None, "Coordinator", canonical(scopes).decode(), self.clock() + ttl, self.clock()))
+            db.execute("INSERT INTO grants(id,run_id,parent,subject,scopes,expires,revoked,depth,created,holder_key) VALUES(?,?,?,?,?,?,0,0,?,?)",
+                       (grant, run, None, "Coordinator", canonical(scopes).decode(), self.clock() + ttl, self.clock(), holder_key))
             g = db.execute("SELECT * FROM grants WHERE id=?", (grant,)).fetchone()
             self.event(db, run, "issued", grant, "ROOT_AUTHORIZED", f"One shared pool of {budget} operation units.")
             return {"run_id": run, "grant": self._claims(g), "token": self._token(g)}
 
-    def delegate(self, token, subject, scopes, expires):
+    def delegate(self, token, subject, scopes, expires, holder_key=None, proof=None):
         denial = None
         with self.transaction() as db:
             parent = self._authenticate(db, token)
             try:
+                self._verify_proof(db, parent, token, proof, "delegate", delegate_fields(subject, scopes, expires, holder_key))
                 self._chain(db, parent)
                 if not isinstance(subject, str) or not 1 <= len(subject.strip()) <= 60:
                     raise Denied("SUBJECT_INVALID", "An agent name must be 1–60 characters.")
@@ -215,12 +316,17 @@ class Passport:
                     raise Denied("SCOPE_ESCALATION", "A child cannot receive a resource/action pair absent from its parent.")
                 if not isinstance(expires, (float, int)) or not self.clock() < expires <= parent["expires"]:
                     raise Denied("EXPIRY_ESCALATION", "A child must expire no later than its parent, and after now.")
+                if holder_key is not None and not valid_public_key(holder_key):
+                    raise Denied("HOLDER_KEY_INVALID", "A holder key must be a raw Ed25519 public key.")
+                if holder_key is None and parent["holder_key"]:
+                    raise Denied("BINDING_REQUIRED", "A child of a key-bound passport must be bound to its own holder key.")
                 count = db.execute("SELECT count(*) FROM grants WHERE run_id=?", (parent["run_id"],)).fetchone()[0]
                 if parent["depth"] >= 8 or count >= 150:
                     raise Denied("DELEGATION_LIMIT", "This demo permits depth 8 and 150 agents per run.")
                 gid = "g_" + uuid.uuid4().hex[:12]
                 normalized = [{"resource": r, "action": a} for r, a in requested]
-                db.execute("INSERT INTO grants VALUES(?,?,?,?,?,?,0,?,?)", (gid, parent["run_id"], parent["id"], subject.strip(), canonical(normalized).decode(), expires, parent["depth"] + 1, self.clock()))
+                db.execute("INSERT INTO grants(id,run_id,parent,subject,scopes,expires,revoked,depth,created,holder_key) VALUES(?,?,?,?,?,?,0,?,?,?)",
+                           (gid, parent["run_id"], parent["id"], subject.strip(), canonical(normalized).decode(), expires, parent["depth"] + 1, self.clock(), holder_key))
                 g = db.execute("SELECT * FROM grants WHERE id=?", (gid,)).fetchone()
                 self.event(db, parent["run_id"], "delegated", gid, "SCOPE_ATTENUATED", f"{subject.strip()} inherits the same budget pool.")
                 result = {"grant": self._claims(g), "token": self._token(g)}
@@ -240,12 +346,13 @@ class Passport:
             db.execute("UPDATE grants SET revoked=1 WHERE id=?", (gid,))
             self.event(db, g["run_id"], "revoked", gid, "BRANCH_REVOKED", "Every descendant will fail its next authorization check.")
 
-    def reserve(self, token, resource, action, request_key):
+    def reserve(self, token, resource, action, request_key, proof=None):
         """Cost is always one unit, determined here, never supplied by the agent."""
         denial = None
         with self.transaction() as db:
             g = self._authenticate(db, token)
             try:
+                self._verify_proof(db, g, token, proof, "execute", execute_fields(resource, action, request_key))
                 self._chain(db, g)
                 if not all(isinstance(s, str) and 1 <= len(s) <= 100 for s in [resource, action, request_key]):
                     raise Denied("REQUEST_INVALID", "Resource, action and idempotency key must be bounded strings.")
@@ -308,6 +415,8 @@ class Passport:
                     "request_digest": op["digest"], "resource": op["resource"], "action": op["action"],
                     "outcome": outcome, "result_digest": hashlib.sha256(canonical(result)).hexdigest(),
                     "policy": POLICY, "cost": 1, "time": self.clock()}
+            if g["holder_key"]:
+                body["cnf"] = g["holder_key"]
             receipt = {"body": body, "signature": b64(self.key.sign(canonical(body)))}
             db.execute("UPDATE operations SET state=?,result=?,receipt=? WHERE id=?", (outcome, canonical(result).decode(), canonical(receipt).decode(), oid))
             if outcome != "unknown":
@@ -338,23 +447,30 @@ class Passport:
         finally:
             db.close()
 
-    def inspect(self, token):
-        """An agent may read its own claims and its pool's balance. Read-only; never returns a token."""
-        db = self.connect()
-        try:
-            db.execute("BEGIN")
+    def inspect(self, token, proof=None):
+        """An agent may read its own claims and its pool's balance. Never returns a token."""
+        denial = None
+        # A write transaction, because a holder proof's nonce is consumed here.
+        with self.transaction() as db:
             g = self._authenticate(db, token)
             try:
-                self._chain(db, g)
-                state = "active"
+                self._verify_proof(db, g, token, proof, "inspect", {})
             except Denied as e:
-                state = e.rule
-            run = db.execute("SELECT budget,spent,reserved FROM runs WHERE id=?", (g["run_id"],)).fetchone()
-            return {"grant": self._claims(g), "state": state,
-                    "budget": {"limit": run["budget"], "spent": run["spent"], "reserved": run["reserved"],
-                               "available": run["budget"] - run["spent"] - run["reserved"]}}
-        finally:
-            db.close()
+                denial = e
+                self.event(db, g["run_id"], "denied", g["id"], e.rule, e.detail)
+            if not denial:
+                try:
+                    self._chain(db, g)
+                    state = "active"
+                except Denied as e:
+                    state = e.rule
+                run = db.execute("SELECT budget,spent,reserved FROM runs WHERE id=?", (g["run_id"],)).fetchone()
+                result = {"grant": self._claims(g), "state": state,
+                          "budget": {"limit": run["budget"], "spent": run["spent"], "reserved": run["reserved"],
+                                     "available": run["budget"] - run["spent"] - run["reserved"]}}
+        if denial:
+            raise denial
+        return result
 
     def evidence(self, run_id):
         return self.snapshot(run_id, include_receipts=True)

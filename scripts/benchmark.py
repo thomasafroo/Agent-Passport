@@ -10,7 +10,7 @@ import threading
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agent_passport.core import Passport, Denied
+from agent_passport.core import Passport, Denied, Holder, execute_fields
 from agent_passport.broker import Executor
 from agent_passport.demo import LOGS
 
@@ -39,6 +39,16 @@ def main():
             op = engine.reserve(latency_root["token"], "staging/checkout", "logs.read", str(i))
             latencies.append((time.perf_counter_ns() - start) / 1e6)
             engine.dispatch(op["id"]); engine.settle(op["id"], "completed", {})
+        # Same measurement for a key-bound passport. The proof is signed before the timer starts;
+        # the timed call includes proof verification and the single-use nonce write.
+        holder = Holder(); bound_root = engine.create_run(budget=250, holder_key=holder.public_key)
+        bound_latencies = []
+        for i in range(200):
+            proof = holder.proof(bound_root["token"], "execute", execute_fields("staging/checkout", "logs.read", str(i)))
+            start = time.perf_counter_ns()
+            op = engine.reserve(bound_root["token"], "staging/checkout", "logs.read", str(i), proof)
+            bound_latencies.append((time.perf_counter_ns() - start) / 1e6)
+            engine.dispatch(op["id"]); engine.settle(op["id"], "completed", {})
         revoke_latencies = []
         for i in range(30):
             branch = engine.delegate(latency_root["token"], "Revocation probe", LOGS, latency_root["grant"]["expires"])
@@ -61,7 +71,7 @@ def main():
         report = {"environment":{"python":platform.python_version(),"os":platform.platform(),"storage":"local SQLite WAL, synchronous default","worker_threads":32},
                   "protected":{"agents":100,"budget":10,"outcomes":counts,"elapsed_ms":round(concurrent_ms,2)},
                   "naive_check_then_act":{"workers":32,"budget":10,"actual_spent":naive["spent"],"scheduling":"barrier forces worst-case concurrent reads; deliberately unsafe comparison"},
-                  "authorization_and_reservation":summary(latencies), "revoke_call_to_observed_denial":summary(revoke_latencies),
+                  "authorization_and_reservation":summary(latencies), "bound_authorization_and_reservation":summary(bound_latencies), "revoke_call_to_observed_denial":summary(revoke_latencies),
                   "limits":"Single host. Includes local DB opening, transaction and audit costs. No network partitions or distributed caches. Timing is not a guaranteed latency bound."}
         destination = Path("artifacts/benchmark.json"); destination.parent.mkdir(exist_ok=True)
         destination.write_text(json.dumps(report, indent=2) + "\n")

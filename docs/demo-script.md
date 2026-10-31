@@ -6,7 +6,7 @@ Run the server with synthetic credentials. Leave the first screen at the root pa
 |---|---|---|
 | 0–10s | Show the title and shared budget | “I gave a team of agents one staging investigation and 24 operations. Forking an agent must not multiply that authority.” |
 | 10–25s | Start investigation (or press →); the inspector opens the log reader | “Each worker gets a signed passport with exact resource/action pairs. Children can narrow scope and expiry, never expand them.” |
-| 25–40s | Inject malicious output; point at the incident panel's two denied stamps | “This controlled malicious tool output makes the worker attempt a production deployment. The gateway rejects the actual request. The model isn't the policy engine.” |
+| 25–40s | Inject malicious output; point at the incident panel's three denied stamps | “This controlled malicious tool output makes the worker attempt a production deployment. The gateway rejects the actual request, and the stolen token fails without its holder key. The model isn't the policy engine.” |
 | 40–55s | Contain branch; show the void passport, then click the trace analyst | “Revoking the log reader cuts off its descendants. A request already waiting in the queue is rechecked and cancelled.” |
 | 55–65s | Complete investigation | “The patch worker is outside that branch and finishes its proposal.” |
 | 65–80s | Fork 32 workers; point at the budget cells and the race board | “Now 32 workers race for the remaining 21 units. Exactly 21 complete. Eleven are denied. Total spend remains 24.” |

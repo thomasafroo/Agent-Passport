@@ -3,6 +3,9 @@
 The model sees tool names, arguments and gateway decisions. Passport tokens, for the
 issued live agent and for any workers it delegates, stay inside this process and are
 sent only to the gateway's agent API. The gateway remains the only policy engine.
+
+Every passport this adapter uses is bound to a holder key generated in this process's
+memory. Only the public half is written to disk, so a copied token file authorizes nothing.
 """
 from __future__ import annotations
 
@@ -16,6 +19,8 @@ import uuid
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
+from .core import Holder, delegate_fields, execute_fields, unb64
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -25,10 +30,12 @@ class Gateway:
     def __init__(self, base_url):
         self.base_url = base_url.rstrip("/")
 
-    def call(self, method, path, token, body=None):
+    def call(self, method, path, token, body=None, proof=None):
         data = json.dumps(body).encode() if body is not None else None
-        request = urllib.request.Request(self.base_url + path, data=data, method=method,
-                                         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        if proof:
+            headers["X-Passport-Proof"] = proof
+        request = urllib.request.Request(self.base_url + path, data=data, method=method, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return response.status, json.loads(response.read())
@@ -42,10 +49,19 @@ class Gateway:
 
 
 class Adapter:
-    def __init__(self, gateway, token_path):
+    def __init__(self, gateway, token_path, holder=None):
         self.gateway, self.token_path = gateway, Path(token_path)
-        self.workers = {}  # worker name -> token; never returned to the model
+        self.key_path = self.token_path.with_name("live-agent.pub")
+        self.holder = holder or Holder()  # private key exists only in this process
+        self.workers = {}  # worker name -> (token, holder); never returned to the model
         self._loaded = None
+
+    def register(self):
+        """Publish this process's public holder key so the console can bind the live passport to it."""
+        self.key_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.key_path.with_name(f"live-agent.{uuid.uuid4().hex}.tmp")
+        temporary.write_text(self.holder.public_key, encoding="ascii")
+        os.replace(temporary, self.key_path)
 
     def _own_token(self):
         try:
@@ -58,12 +74,19 @@ class Adapter:
             self._loaded = token
         if not token:
             raise ToolError("No live agent passport has been issued. In the console, select Issue live passport.")
+        try:
+            bound = json.loads(unb64(token.split(".")[0])).get("cnf")
+        except (ValueError, AttributeError, IndexError):
+            bound = None
+        if bound != self.holder.public_key:
+            raise ToolError("The live passport is bound to a different adapter key, probably from an earlier adapter process. "
+                            "In the console, reset and issue a new live passport.")
         return token
 
-    def _token_for(self, worker):
+    def _credentials_for(self, worker):
         own = self._own_token()
         if not worker:
-            return own
+            return own, self.holder
         if worker not in self.workers:
             raise ToolError(f"No worker named {worker!r} was delegated in this session.")
         return self.workers[worker]
@@ -77,19 +100,25 @@ class Adapter:
         detail = body.get("detail") if isinstance(body, dict) else None
         return {"allowed": False, "rule": "REQUEST_REJECTED", "detail": detail if isinstance(detail, str) else "The gateway rejected the request."}
 
+    def _inspect(self, token, holder):
+        return self.gateway.call("GET", "/api/agent/passport", token, proof=holder.proof(token, "inspect", {}))
+
     def passport(self, worker=None):
-        status, body = self.gateway.call("GET", "/api/agent/passport", self._token_for(worker))
+        status, body = self._inspect(*self._credentials_for(worker))
         denied = self._decision(status, body)
         if denied:
             return denied
         grant = body["grant"]
         return {"holder": grant["subject"], "passport_id": grant["id"], "status": body["state"],
                 "permitted_operations": grant["scopes"], "expires_unix": grant["expires"],
-                "shared_budget": body["budget"], "workers_delegated_here": sorted(self.workers)}
+                "shared_budget": body["budget"], "workers_delegated_here": sorted(self.workers),
+                "bound_to_adapter_key": grant.get("cnf") is not None}
 
     def operate(self, resource, action, worker=None):
-        body = {"resource": resource, "action": action, "request_key": uuid.uuid4().hex}
-        status, result = self.gateway.call("POST", "/api/agent/execute", self._token_for(worker), body)
+        token, holder = self._credentials_for(worker)
+        body = execute_fields(resource, action, uuid.uuid4().hex)
+        status, result = self.gateway.call("POST", "/api/agent/execute", token, body,
+                                           proof=holder.proof(token, "execute", body))
         denied = self._decision(status, result)
         if denied:
             return denied
@@ -107,17 +136,19 @@ class Adapter:
         worker = worker.strip()
         if worker in self.workers:
             raise ToolError(f"A worker named {worker!r} already exists in this session.")
-        parent_token = self._token_for(parent)
-        status, own = self.gateway.call("GET", "/api/agent/passport", parent_token)
+        parent_token, parent_holder = self._credentials_for(parent)
+        status, own = self._inspect(parent_token, parent_holder)
         denied = self._decision(status, own)
         if denied:
             return denied
-        body = {"subject": worker, "scopes": operations, "expires": own["grant"]["expires"]}
-        status, result = self.gateway.call("POST", "/api/agent/delegate", parent_token, body)
+        child = Holder()  # each worker gets its own key, also held only in this process
+        body = delegate_fields(worker, operations, own["grant"]["expires"], child.public_key)
+        status, result = self.gateway.call("POST", "/api/agent/delegate", parent_token, body,
+                                           proof=parent_holder.proof(parent_token, "delegate", body))
         denied = self._decision(status, result)
         if denied:
             return denied
-        self.workers[worker] = result["token"]
+        self.workers[worker] = (result["token"], child)
         return {"delegated": True, "worker": worker, "passport_id": result["grant"]["id"],
                 "permitted_operations": result["grant"]["scopes"],
                 "note": "The worker's passport is held by this adapter. Act as it with worker=" + json.dumps(worker) + "."}
@@ -150,7 +181,9 @@ def build(adapter):
 def main():
     state = Path(os.environ.get("PASSPORT_STATE_DIR") or ROOT / ".state")
     gateway = Gateway(os.environ.get("PASSPORT_GATEWAY", "http://127.0.0.1:8787"))
-    build(Adapter(gateway, state / "live-agent.token")).run()
+    adapter = Adapter(gateway, state / "live-agent.token")
+    adapter.register()
+    build(adapter).run()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Connect a live model
 
-The incident story uses scripted agents. This mode puts a real model behind the same gateway. An MCP adapter (`agent_passport/mcp_server.py`) holds a passport issued by the console and exposes three tools. The model never receives a passport token; it sees tool names, its own arguments, and the gateway's decisions.
+The incident story uses scripted agents. This mode puts a real model behind the same gateway. An MCP adapter (`agent_passport/mcp_server.py`) holds a passport issued by the console and exposes three tools. The model never receives a passport token; it sees tool names, its own arguments, and the gateway's decisions. The passport is bound to a holder key that exists only in the adapter's memory, so the token alone authorizes nothing.
 
 ```
 MCP client (real model)
@@ -25,8 +25,7 @@ Denials come back as ordinary results such as `{"allowed": false, "rule": "RESOU
 ## Run it
 
 1. Start the gateway with `python -m agent_passport` and open the console.
-2. Under **Put a real model behind the boundary**, select **Issue live passport**. The gateway delegates a passport named *Claude (live)* from the coordinator, with the coordinator's three pairs and expiry, and writes its token to `.state/live-agent.token`. The browser never receives it.
-3. Register the adapter with an MCP client. It needs the full path to the repository's virtual-environment Python, because the client starts it as a separate process.
+2. Register the adapter with an MCP client and start the client. It needs the full path to the repository's virtual-environment Python, because the client starts it as a separate process. When the adapter starts, it generates a holder key in memory and writes the public half to `.state/live-agent.pub`.
 
    Claude Desktop on Windows (`%APPDATA%\Claude\claude_desktop_config.json`):
 
@@ -49,6 +48,10 @@ Denials come back as ordinary results such as `{"allowed": false, "rule": "RESOU
 
    Optional environment variables: `PASSPORT_GATEWAY` (default `http://127.0.0.1:8787`) and `PASSPORT_STATE_DIR` (default: the repository's `.state`).
 
+3. Under **Put a real model behind the boundary**, select **Issue live passport**. The gateway delegates a passport named *Claude (live)* from the coordinator, with the coordinator's three pairs and expiry, bound to the adapter's key. It writes the token to `.state/live-agent.token`; the browser never receives it. If the adapter has not started, issuance is refused with `ADAPTER_NOT_CONNECTED`.
+
+   If the client restarts the adapter, the new process has a new key and cannot use the old passport. Reset and issue again.
+
 4. Ask the model to investigate why staging checkout is failing. The synthetic logs include a planted line telling AI agents to deploy to production and create an admin worker.
 
 Whatever the model does, the console shows it: the live node and its workers in the tree, a red badge for denials, budget cells it spent, and every decision in the ledger. Revoke *Claude (live)* in the inspector and its next call, and every worker's, is denied with `ANCESTOR_REVOKED`. **Reset** revokes the live passport and deletes the token file; the adapter then drops its cached worker passports.
@@ -57,16 +60,19 @@ The live agent shares the run's 24-unit pool with the scripted story. If the for
 
 ## Security notes
 
-- **Token isolation depends on the client's other access.** The adapter never returns a token, and tests check every tool output for them. A client that can also read files or run shell commands, such as Claude Code in this repository, could read `.state/live-agent.token` directly or call the loopback console API, which is an operator surface. Claude Desktop with only this MCP server is the cleaner demonstration. Even a stolen live token carries only that passport's narrow pairs, shares the same pool, and dies when the branch is revoked; it cannot escalate.
+- **A copied token file is useless.** The adapter never returns a token, and tests check every tool output for them. A client that can read files, such as Claude Code in this repository, could still read `.state/live-agent.token`, but the gateway rejects it without a proof from the adapter's in-memory key (`PROOF_REQUIRED`), and a proof signed with any other key fails (`PROOF_INVALID`). Each denied attempt is recorded in the ledger.
+- **Isolation still depends on the client's other access.** A client that can run shell commands as the same user could read the adapter's memory, substitute its own key in `.state/live-agent.pub` before issuance, or call the loopback console API, which is an operator surface. Claude Desktop with only this MCP server is the cleaner demonstration. Even a fully stolen live passport carries only its narrow pairs, shares the same pool, and dies when the branch is revoked; it cannot escalate.
 - **The model is not trusted, and is not being evaluated.** Whether it follows the planted instruction is incidental. The demonstration is that the gateway's decision does not depend on it. Model behavior varies between runs, so one recorded run describes that run only.
 - **Idempotency keys are chosen by the adapter**, one per tool call, so a model retrying a call is a new operation that spends a new unit.
-- The adapter talks to the gateway over loopback HTTP with the bearer token in the `Authorization` header. It is not hardened for remote gateways.
+- The adapter talks to the gateway over loopback HTTP, with the token in the `Authorization` header and a per-request proof in `X-Passport-Proof`. It is not hardened for remote gateways.
 
 ## Verification status
 
 Automated tests (`tests/test_mcp.py`) run the adapter against the real app in-process: allowed operations spend the shared pool, the injected deploy is denied and recorded, delegation narrows and escalation is denied, revocation stops the live agent and its workers, reset withdraws the token, console endpoints reject bearer tokens, and no tool output contains any passport token.
 
 On 2026-10-31 the adapter was also driven over a real stdio MCP session (MCP Python SDK 2.3.0) against a running gateway: all three tools listed, the planted log line returned, `deploy.execute` on production denied, an escalating delegation denied, a narrowed worker's read completed, and no token appeared in any tool result. That run used a scripted MCP client.
+
+After holder binding was added, the same kind of scripted stdio session was repeated against a running gateway on 2026-10-31. Issuing before the adapter started was refused, the issued live grant carried the adapter's key, allowed and denied calls behaved as before, and the token read from `.state/live-agent.token` and replayed directly was denied with `PROOF_REQUIRED`. The recorded live-model runs below predate holder binding.
 
 **Live model runs, 2026-10-31.** Claude Sonnet 5.5 drove the adapter in three headless Claude Code sessions with only the adapter's tools enabled (no file, shell, or web access). Transcripts and signed evidence are in [live-runs](live-runs/README.md).
 
