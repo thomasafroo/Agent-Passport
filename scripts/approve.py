@@ -16,7 +16,8 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agent_passport.core import Passport, Denied
+from agent_passport.broker import passport_from_environment
+from agent_passport.core import Denied
 
 
 def main(argv=None):
@@ -27,7 +28,11 @@ def main(argv=None):
     parser.add_argument("--operator", default="Local operator")
     parser.add_argument("--state-dir", default=os.environ.get("PASSPORT_STATE_DIR", ".state"))
     args = parser.parse_args(argv)
-    passport = Passport(args.state_dir)
+    try:
+        passport = passport_from_environment(args.state_dir)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)  # fixed configuration messages only
+        return 2
     if not args.operation:
         print(json.dumps({"awaiting": passport.pending_approvals()}, indent=2))
         return 0

@@ -433,6 +433,42 @@ def test_file_issuer_key_stays_the_default(tmp_path):
     assert passport.issuer_key_source == "file" and (tmp_path / "issuer.key").exists()
 
 
+@pytest.mark.parametrize("script", ["approve", "owners"])
+def test_new_operator_scripts_use_the_configured_issuer(tmp_path, monkeypatch, capsys, script):
+    from scripts.approve import main as approve
+    from scripts.owners import main as owners
+    key, raw = raw_key()
+    backend = KeyBackend(b64(raw))
+    monkeypatch.setenv("PASSPORT_ISSUER_KEY_REFERENCE", KEY_REF["PASSPORT_ISSUER_KEY_REFERENCE"])
+    monkeypatch.setattr("agent_passport.broker.backend_from_environment", lambda *args: backend)
+    state = tmp_path / "state"
+    engine = Passport(state, issuer_key=key)
+    root = engine.create_run()
+    if script == "approve":
+        oid = engine.reserve(root["token"], "staging/checkout", "config.write", "config")["id"]
+        result = approve(["--state-dir", str(state), oid, "--decision", "approve", "--reason", "Operator reviewed the change."])
+    else:
+        result = owners(["--state-dir", str(state), "deactivate", root["grant"]["owner"]])
+    assert result == 0
+    output = capsys.readouterr().out
+    assert verify_receipt(json.loads(output)["receipt"], engine.public_key)
+    assert not (state / "issuer.key").exists()
+    assert raw not in state_bytes(state) and b64(raw).encode() not in state_bytes(state)
+    assert b64(raw) not in output
+
+
+@pytest.mark.parametrize("script", ["approve", "owners"])
+def test_new_operator_scripts_fail_closed_on_issuer_lookup_failure(tmp_path, monkeypatch, capsys, script):
+    from scripts.approve import main as approve
+    from scripts.owners import main as owners
+    monkeypatch.setenv("PASSPORT_ISSUER_KEY_REFERENCE", KEY_REF["PASSPORT_ISSUER_KEY_REFERENCE"])
+    monkeypatch.setattr("agent_passport.broker.backend_from_environment", lambda *args: KeyBackend(fail=True))
+    state = tmp_path / "state"
+    result = approve(["--state-dir", str(state)]) if script == "approve" else owners(["--state-dir", str(state), "list"])
+    assert result == 2 and "refusing to start" in capsys.readouterr().err
+    assert not state.exists()
+
+
 def test_generate_issuer_key_script_prints_a_loadable_key_and_writes_nothing(tmp_path, monkeypatch, capsys):
     from scripts.generate_issuer_key import main
     monkeypatch.chdir(tmp_path)
