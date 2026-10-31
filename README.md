@@ -39,6 +39,10 @@ Open **http://127.0.0.1:8787**. Use `--port 8788` if that port is occupied. Run 
 
 One primary button (or the → key) advances the story, and the inspector follows the agent each step is about. Click any tree node to open its passport: exact permissions, issuer, expiry, the ancestor chain the gateway checks, and a machine-readable zone derived from the grant. The machine-readable zone is decorative encoding, not a security mechanism. The inspector can revoke a branch independently of the scripted story. Reset starts a new run; prior records remain on disk. Restarting starts a fresh console story while existing grants, budgets, revocations, and idempotency records remain durable.
 
+## Connect a real model
+
+The console can issue a passport to an MCP adapter so a real model, such as Claude, works the incident through the same gateway. The adapter keeps every passport token; the model sees only tool results. The synthetic logs contain a planted instruction to deploy to production, and the console shows each decision the gateway makes about the model's requests. See [the live agent guide](docs/live-agent.md), including what isolation it does and does not provide.
+
 ## What is real
 
 | Mechanism | Implementation |
@@ -53,8 +57,9 @@ One primary button (or the → key) advances the story, and the inspector follow
 | Credential isolation | Executor resolves credentials; passports, browser state, and receipts contain no credential values |
 | Evidence | Hash-linked decision events and independently verifiable signed operation receipts |
 | 1Password | Optional real `op read` credential resolver connected to an authenticated synthetic service |
+| Live model | Optional MCP adapter: a real model acts through a passport it never holds; the gateway decides every call |
 
-The agents are **scripted**, and logs/code/patches come from a **synthetic service**. No production deployment exists. The malicious tool output is a deterministic adversarial fixture, not an evaluation of an LLM's prompt-injection resistance. The test demonstrates what the authorization boundary does when a worker makes an unauthorized request.
+The story's agents are **scripted**, and logs/code/patches come from a **synthetic service**. A connected live model is real, but its tools reach only that same synthetic service. No production deployment exists. The malicious tool output is a deterministic adversarial fixture, not an evaluation of an LLM's prompt-injection resistance. The test demonstrates what the authorization boundary does when a worker makes an unauthorized request.
 
 ## Verify the claims
 
@@ -91,7 +96,8 @@ flowchart LR
     G --> B[Code investigator]
     G --> C[Patch worker]
     A --> D[Trace analyst]
-    A & B & C & D --> V[Gateway: verify chain + reserve unit]
+    G --> L[Claude live, via MCP adapter]
+    A & B & C & D & L --> V[Gateway: verify chain + reserve unit]
     V --> DB[(SQLite shared root pool)]
     V --> E[Executor: revalidate at dispatch]
     P[1Password CLI or synthetic provider] --> E
@@ -99,7 +105,7 @@ flowchart LR
     E --> R[Signed receipt + settlement]
 ```
 
-See [the threat model](docs/threat-model.md), [authorization semantics](docs/architecture.md), [measured results](docs/results.md), and [the 90-second demo script](docs/demo-script.md).
+See [the live agent guide](docs/live-agent.md), [the threat model](docs/threat-model.md), [authorization semantics](docs/architecture.md), [measured results](docs/results.md), and [the 90-second demo script](docs/demo-script.md).
 
 ## Repository map
 
@@ -108,6 +114,7 @@ agent_passport/core.py     Signed grants, ancestor checks, transactions, receipt
 agent_passport/broker.py   Credential providers and controlled executor
 agent_passport/demo.py     Reproducible incident and concurrent fork scenarios
 agent_passport/server.py   Local console and bearer-authenticated agent API
+agent_passport/mcp_server.py  MCP adapter for a live model; holds passports, never returns them
 web/                      Responsive console; plain JS, CSS, no external assets
 tests/                    Security invariants and HTTP integration tests
 scripts/                  Benchmarks, scenario runner, offline verifier

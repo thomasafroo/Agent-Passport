@@ -279,6 +279,22 @@ main { max-width: 1320px; margin: 0 auto; padding: 0 32px 40px; }
 .race-stats dd.ok { color: #4fd1b5; }
 .race-stats dd.no { color: #ef8b9c; }
 
+/* ---------- Live agent ---------- */
+.live { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.4fr); gap: 12px 32px; margin-top: 16px; padding: 22px 24px; background: var(--sheet); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow); }
+.live h2 { font: 600 24px/1.15 var(--font-cond); }
+.live-copy p { margin-top: 8px; font-size: 14.5px; line-height: 1.55; color: var(--ink-2); max-width: 52ch; }
+.live-steps { list-style: none; padding: 0; counter-reset: live; display: grid; gap: 10px; align-content: start; }
+.live-steps li { counter-increment: live; display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 14px; }
+.live-steps li::before { content: counter(live); display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--ink-3); font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.live-steps code { grid-column: 2 / -1; padding: 8px 10px; border-radius: 7px; background: var(--ink); color: #e8d6a8; font-size: 12.5px; overflow-x: auto; white-space: nowrap; }
+.primary.small { min-height: 36px; padding: 0 16px; font-size: 13.5px; box-shadow: none; }
+.live-status { grid-column: 1 / -1; font-size: 13.5px; color: var(--ink-2); }
+.live-status:empty { display: none; }
+.node.live-node { border: 1.5px dashed var(--foil); background: #fffaf0; }
+.node .live-chip { position: absolute; right: -6px; top: -10px; padding: 1px 7px; border-radius: 999px; background: var(--foil); color: var(--navy-1); font: 700 10.5px/1.5 var(--font); letter-spacing: .1em; box-shadow: 0 0 0 3px var(--sheet); }
+@media (max-width: 940px) { .live { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .live { padding: 18px 16px; } .live-steps li { grid-template-columns: 26px minmax(0, 1fr); } .live-steps li .primary { grid-column: 2; justify-self: start; } }
+
 /* ---------- Ledger ---------- */
 .lower { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 16px; margin-top: 16px; align-items: start; }
 .ledger { padding: 20px 0 8px; overflow: hidden; }

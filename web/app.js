@@ -74,7 +74,7 @@ function branchColor(g) {
   const tops = state.grants.filter(x => x.parent === rootGrant().id);
   return ["var(--branch-a)", "var(--branch-b)", "var(--branch-c)"][tops.indexOf(topBranch(g)) % 3];
 }
-function abbreviate(subject) { return subject.startsWith("Fork ") ? subject.slice(5) : subject.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(); }
+function abbreviate(subject) { return subject.startsWith("Fork ") ? subject.slice(5) : subject.split(/\s+/).map(w => w.replace(/[^A-Za-z0-9]/g, "")[0] || "").join("").slice(0, 2).toUpperCase(); }
 const denialsFor = id => state.events.filter(e => e.kind === "denied" && e.grant_id === id);
 function available() { const r = state.run; return r.budget - r.spent - r.reserved; }
 function relTime(t) { return `+${(t - state.run.created).toFixed(3)}s`; }
@@ -97,6 +97,7 @@ function renderControls() {
   $("step").classList.toggle("busy", busy);
   $("reset").disabled = busy;
   $("export").disabled = busy || !state;
+  if (state) renderLive();
 }
 
 function primary() {
@@ -127,6 +128,7 @@ function renderGraph() {
     const denials = denialsFor(g.id).length;
     if (denials) { const badge = el("span", "denials", String(denials)); badge.title = `${denials} denied request${denials === 1 ? "" : "s"}`; button.append(badge); }
     if (g.state === "revoked") button.append(el("span", "void", "VOID"));
+    else if (g.id === state.live_grant) { button.classList.add("live-node"); button.append(el("span", "live-chip", "LIVE")); }
     if (seen && !seen.grants.has(g.id)) { button.classList.add("appear"); button.style.setProperty("--i", String(order++)); }
     else if (seen && denials > (seen.denials.get(g.id) || 0)) button.classList.add("just-denied");
     button.onclick = () => { selected = g.id; renderGraph(); renderInspector(true); };
@@ -402,6 +404,22 @@ function showEvent(e) {
 
 /* ---------- Render ---------- */
 const FOCUS_BY_STAGE = { 1: "Log reader", 2: "Log reader", 3: "Log reader", 4: "Patch worker" };
+function renderLive() {
+  const g = state.live_grant && grantById(state.live_grant);
+  const button = $("issue-live");
+  const free = available();
+  button.disabled = busy || (g && g.state === "active") || free < 1;
+  button.title = free < 1 ? "The shared budget is spent. Reset to give the live agent units to work with." : "";
+  const status = $("live-status");
+  if (!g) { status.textContent = free < 1 ? "The shared budget is spent. Reset first so the live agent has units to work with." : `The live agent will share the ${free} units left in this run's pool.`; return; }
+  const events = state.events.filter(e => e.grant_id === g.id || state.grants.some(w => w.id === e.grant_id && w.parent === g.id));
+  const done = events.filter(e => e.kind === "completed").length, denied = events.filter(e => e.kind === "denied").length;
+  const workers = state.grants.filter(w => w.parent === g.id).length;
+  status.textContent = g.state !== "active" ? `Claude (live) is void. Its next call will be denied. ${done} completed and ${denied} denied before revocation.`
+    : !events.length ? "Passport issued to Claude (live). Waiting for its first tool call."
+    : `Claude (live): ${done} completed, ${denied} denied${workers ? `, ${workers} worker${workers === 1 ? "" : "s"} delegated` : ""}.`;
+}
+
 function render() {
   if (seen && seen.run !== state.run.id) seen = null;
   if (pendingFocus) {
@@ -422,7 +440,7 @@ function render() {
     li.classList.toggle("current", n === s);
     if (n === s) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
   });
-  renderGraph(); renderIncident(); renderInspector(pendingFocus && selected !== seen?.selected); renderBudget(); renderRace(); renderEvents(); renderControls();
+  renderGraph(); renderIncident(); renderInspector(pendingFocus && selected !== seen?.selected); renderBudget(); renderRace(); renderLive(); renderEvents(); renderControls();
   seen = {
     run: state.run.id, stage: s, spent: state.run.spent, fork: Boolean(state.metrics.fork), selected,
     grants: new Set(state.grants.map(g => g.id)),
@@ -448,6 +466,7 @@ async function exportEvidence() {
 $("step").onclick = primary;
 $("reset").onclick = () => action("/api/demo/reset");
 $("export").onclick = exportEvidence;
+$("issue-live").onclick = async () => { await action("/api/live/issue"); if (state?.live_grant) { selected = state.live_grant; render(); } };
 $("close-dialog").onclick = () => $("event-dialog").close();
 $("event-dialog").onclick = event => { if (event.target === $("event-dialog")) { const r = event.target.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) event.target.close(); } };
 document.querySelectorAll("[data-filter]").forEach(button => button.onclick = () => { filter = button.dataset.filter; document.querySelectorAll("[data-filter]").forEach(b => { b.classList.toggle("selected", b === button); b.setAttribute("aria-pressed", String(b === button)); }); renderEvents(); });

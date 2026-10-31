@@ -4,6 +4,8 @@
 
 An agent may be compromised by untrusted tool output. It can send any request, share its bearer token, retry, fork, create narrower descendants, and race other workers. It can choose an arbitrary operation key and request forbidden resource/action pairs. It cannot modify the gateway code, SQLite database, issuer key, server configuration, or executor.
 
+A live model connected through the MCP adapter is treated the same way: untrusted, able to request anything, and holding no token. The adapter is trusted local code that keeps the passports and forwards calls; it adds no policy.
+
 The browser is the local human operator console. It can issue the scripted root and revoke branches. It is not an untrusted agent sandbox. Anyone who can access the loopback service locally has operator access. The session header prevents ordinary cross-origin browser mutation; it is not human authentication.
 
 ## Claims and evidence
@@ -19,10 +21,12 @@ The browser is the local human operator console. It can issue the scripted root 
 | Unknown effects cannot trigger free retries | Unknown-outcome capacity retention test |
 | Agent requests do not obtain the provider credential | Snapshot/receipt redaction tests and fixed fixture response surface |
 | Modified passports and receipts are rejected | Signature and foreign-issuer tests |
+| A live model's tool results never contain passport tokens | MCP adapter output scan across every tool, including delegated workers |
+| Reset withdraws a live agent | Reset revokes the live branch, deletes its token file, and the adapter drops worker passports |
 
 ## Explicit non-claims
 
-- This is not a sandbox for arbitrary code. A local agent with access to `.state` or the operator environment can bypass these boundaries.
+- This is not a sandbox for arbitrary code. A local agent with access to `.state` or the operator environment can bypass these boundaries. An MCP client that also has file or shell access, such as a coding agent in this repository, can read the live token file or reach the loopback console API.
 - Bearer passports can be stolen or shared. Signatures authenticate issuer statements, not the runtime presenting them.
 - A shared pool provides a ceiling, not fairness. A worker can consume all remaining allowed operations.
 - Signed tokens alone do not revoke anything. Revocation depends on online durable state checks.
@@ -30,7 +34,7 @@ The browser is the local human operator console. It can issue the scripted root 
 - No distributed-cache, network-partition, or clock-skew bound has been established. The server wall clock is trusted.
 - No automatic recovery of crash-stranded reservations is implemented. Capacity stays held rather than risking duplicated effects.
 - The fixture service has no production side effects. There is no claim of exactly-once execution against an arbitrary external API.
-- No LLM attack-resistance or universal prompt-injection prevention claim is made. The fixture explicitly issues malicious requests to test the gateway.
+- No LLM attack-resistance or universal prompt-injection prevention claim is made. The fixture explicitly issues malicious requests to test the gateway, and a live model's choice to follow or ignore the planted log line is not measured or relied on.
 - There is no data-flow tracking or quarantine of downstream outputs from a compromised worker.
 - Hash-linked events without a trusted checkpoint are not a tamper-proof audit ledger.
 - There is no public hosting, user login, per-tenant isolation, rate limiter, retention policy, or production denial-of-service protection.

@@ -91,6 +91,19 @@
       <dl class="race-stats" id="race-stats"></dl>
     </section>
 
+    <section class="live" id="live" aria-label="Live agent">
+      <div class="live-copy">
+        <h2>Put a real model behind the boundary</h2>
+        <p>Issue a passport to the MCP adapter, then connect Claude to it. The adapter keeps the passport; the model only sees tool results. Every call it makes is decided by this gateway and appears in the tree and ledger.</p>
+      </div>
+      <ol class="live-steps">
+        <li><span>Issue a passport for the live agent.</span><button class="primary small" id="issue-live" type="button">Issue live passport</button></li>
+        <li><span>Connect an MCP client, such as Claude Desktop, to this adapter:</span><code id="live-command">python -m agent_passport.mcp_server</code></li>
+        <li><span>Ask it to investigate the staging checkout failure. The logs it reads contain a planted instruction.</span></li>
+      </ol>
+      <p class="live-status" id="live-status" aria-live="polite"></p>
+    </section>
+
     <section class="lower">
       <div class="ledger">
         <div class="ledger-head">
@@ -113,7 +126,7 @@
           <div><dt>Revocation</dt><dd>Ancestors rechecked at reservation and at dispatch</dd></div>
           <div><dt>Credentials</dt><dd>Resolved by the executor; never handed to agents</dd></div>
         </dl>
-        <p class="fine">Local research prototype. Agents are scripted and service data is synthetic; the authorization enforcement is real. Revocation blocks future dispatches and cannot undo actions already dispatched.</p>
+        <p class="fine">Local research prototype. The story's agents are scripted, a connected live agent is a real model, and service data is synthetic in both cases; the authorization enforcement is real. Revocation blocks future dispatches and cannot undo actions already dispatched.</p>
         <button class="ghost wide" id="export" type="button" disabled>Download signed evidence</button>
       </aside>
     </section>
