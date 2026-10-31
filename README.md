@@ -71,8 +71,7 @@ Tests cover multi-thread and multi-process contention, concurrent retries, resou
 For offline evidence verification, obtain the issuer public key through a trusted channel (the local issuer is `.state/issuer.key`; **never share the private key**). The scenario runner writes a separate public-key file:
 
 ```powershell
-$issuerKey = (Get-Content artifacts/issuer-public-key.txt).Trim()
-python scripts/verify_evidence.py artifacts/scenario-evidence.json --public-key $issuerKey
+python scripts/verify_evidence.py artifacts/scenario-evidence.json --public-key-file artifacts/issuer-public-key.txt
 ```
 
 Pin the public key independently before accepting evidence from someone else. A key embedded in the same untrusted export is not a trust anchor. Receipt signatures establish what the issuer signed, not whether an external executor reported reality truthfully. The event hash chain is not externally anchored and cannot prove completeness or resist a writer who recomputes the whole chain.
