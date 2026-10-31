@@ -1,0 +1,224 @@
+{
+  "run": {
+    "id": "run_22ee9923993f",
+    "budget": 24,
+    "spent": 3,
+    "reserved": 0,
+    "created": 1793481155.846238
+  },
+  "grants": [
+    {
+      "v": 1,
+      "issuer": "6Ldt8gEf-CKhI_NbM4IGp6ERDPNnafA11mX2q8Dn2ok",
+      "id": "g_824f3a2eec18",
+      "run_id": "run_22ee9923993f",
+      "parent": null,
+      "subject": "Coordinator",
+      "scopes": [
+        {
+          "action": "code.read",
+          "resource": "repo/checkout"
+        },
+        {
+          "action": "patch.propose",
+          "resource": "repo/checkout"
+        },
+        {
+          "action": "logs.read",
+          "resource": "staging/checkout"
+        }
+      ],
+      "expires": 1793484755.8463328,
+      "depth": 0,
+      "cnf": "n27ScBLmoNxIpVGuVyuCQVUF9WoGKMpG1iUPjmKWkqg",
+      "state": "active",
+      "directly_revoked": false
+    },
+    {
+      "v": 1,
+      "issuer": "6Ldt8gEf-CKhI_NbM4IGp6ERDPNnafA11mX2q8Dn2ok",
+      "id": "g_2695ad253200",
+      "run_id": "run_22ee9923993f",
+      "parent": "g_824f3a2eec18",
+      "subject": "Claude (live)",
+      "scopes": [
+        {
+          "action": "code.read",
+          "resource": "repo/checkout"
+        },
+        {
+          "action": "patch.propose",
+          "resource": "repo/checkout"
+        },
+        {
+          "action": "logs.read",
+          "resource": "staging/checkout"
+        }
+      ],
+      "expires": 1793484755.8463328,
+      "depth": 1,
+      "cnf": "0bNP-QxmZBLd126LeYSCvZVWWe6D-twVq8ls2jpDgbU",
+      "state": "active",
+      "directly_revoked": false
+    }
+  ],
+  "events": [
+    {
+      "seq": 38,
+      "hash": "08a647475b0c63dc1203c917ed23ac906eb45dfb36f6e3ddff385e5569662d8a",
+      "detail": "One shared pool of 24 operation units.",
+      "grant_id": "g_824f3a2eec18",
+      "kind": "issued",
+      "previous": "0000000000000000000000000000000000000000000000000000000000000000",
+      "rule": "ROOT_AUTHORIZED",
+      "time": 1793481155.8463798
+    },
+    {
+      "seq": 39,
+      "hash": "82c505ccb7138d791a70b9a700e91ccc583861945d5ea0394f62d3448ce5528e",
+      "detail": "Claude (live) inherits the same budget pool.",
+      "grant_id": "g_2695ad253200",
+      "kind": "delegated",
+      "previous": "08a647475b0c63dc1203c917ed23ac906eb45dfb36f6e3ddff385e5569662d8a",
+      "rule": "SCOPE_ATTENUATED",
+      "time": 1793481157.0796266
+    },
+    {
+      "seq": 40,
+      "hash": "bba47bdd480a9df1c2a0dc51da68581b510eede983c8d6e4d7153e0b2e8e7da1",
+      "detail": "One unit reserved atomically.",
+      "grant_id": "g_2695ad253200",
+      "kind": "reserved",
+      "operation_id": "op_b4841286d1934e3d9b489761f44e3b8c",
+      "previous": "82c505ccb7138d791a70b9a700e91ccc583861945d5ea0394f62d3448ce5528e",
+      "rule": "BUDGET_RESERVED",
+      "time": 1793481160.519565
+    },
+    {
+      "seq": 41,
+      "hash": "fbedca7f838dd78497785a290825a05ad705b270beb3f5842b7c46329cb1c6d7",
+      "detail": "One operation completed. One unit consumed.",
+      "grant_id": "g_2695ad253200",
+      "kind": "completed",
+      "operation_id": "op_b4841286d1934e3d9b489761f44e3b8c",
+      "previous": "bba47bdd480a9df1c2a0dc51da68581b510eede983c8d6e4d7153e0b2e8e7da1",
+      "rule": "EXECUTED",
+      "time": 1793481160.5316544
+    },
+    {
+      "seq": 42,
+      "hash": "8abf15865277d812c51d9840de17bc64483b597a45662ee009c8b8ad9e36c4d9",
+      "detail": "One unit reserved atomically.",
+      "grant_id": "g_2695ad253200",
+      "kind": "reserved",
+      "operation_id": "op_020094087a2c4bab85e47c4fb13163f8",
+      "previous": "fbedca7f838dd78497785a290825a05ad705b270beb3f5842b7c46329cb1c6d7",
+      "rule": "BUDGET_RESERVED",
+      "time": 1793481160.6945734
+    },
+    {
+      "seq": 43,
+      "hash": "09a8fafccb57651594cf49c9421c09056987caab0a322e97c2122d659dea07c5",
+      "detail": "One operation completed. One unit consumed.",
+      "grant_id": "g_2695ad253200",
+      "kind": "completed",
+      "operation_id": "op_020094087a2c4bab85e47c4fb13163f8",
+      "previous": "8abf15865277d812c51d9840de17bc64483b597a45662ee009c8b8ad9e36c4d9",
+      "rule": "EXECUTED",
+      "time": 1793481160.7086482
+    },
+    {
+      "seq": 44,
+      "hash": "052ccf38b0b12e2467027c98661eabd189fda15f6b75ff6cae8b3c6776e6e232",
+      "detail": "One unit reserved atomically.",
+      "grant_id": "g_2695ad253200",
+      "kind": "reserved",
+      "operation_id": "op_8790ecf6de4f41d090e435cb040afb6c",
+      "previous": "09a8fafccb57651594cf49c9421c09056987caab0a322e97c2122d659dea07c5",
+      "rule": "BUDGET_RESERVED",
+      "time": 1793481165.3014398
+    },
+    {
+      "seq": 45,
+      "hash": "1dd7292eac5cb21ed84d0a907221ce84a2069599f002290beed9adb05568fe26",
+      "detail": "One operation completed. One unit consumed.",
+      "grant_id": "g_2695ad253200",
+      "kind": "completed",
+      "operation_id": "op_8790ecf6de4f41d090e435cb040afb6c",
+      "previous": "052ccf38b0b12e2467027c98661eabd189fda15f6b75ff6cae8b3c6776e6e232",
+      "rule": "EXECUTED",
+      "time": 1793481165.3231416
+    }
+  ],
+  "public_key": "6Ldt8gEf-CKhI_NbM4IGp6ERDPNnafA11mX2q8Dn2ok",
+  "policy": "passport/1",
+  "server_time": 1793481172.2679546,
+  "receipts": [
+    {
+      "body": {
+        "action": "logs.read",
+        "chain": [
+          "g_2695ad253200",
+          "g_824f3a2eec18"
+        ],
+        "cnf": "0bNP-QxmZBLd126LeYSCvZVWWe6D-twVq8ls2jpDgbU",
+        "cost": 1,
+        "grant_id": "g_2695ad253200",
+        "operation_id": "op_b4841286d1934e3d9b489761f44e3b8c",
+        "outcome": "completed",
+        "policy": "passport/1",
+        "request_digest": "6f6c327fd1d72dbf0e2143e90f7c7dd675a7d7632aa1d87b150134a11014c6e1",
+        "resource": "staging/checkout",
+        "result_digest": "ec080bad2b13b6397864ed2615d489e62dd2336c3ceb50dec122fe1bf67cc1bd",
+        "run_id": "run_22ee9923993f",
+        "time": 1793481160.5315323
+      },
+      "signature": "KESc9ALdRcak3fEJliqjX9RETlSSm8Q2d0VPDtNwkTrIzC0PTqEG-hpu-OwLT8XeTCDgfakWqlxST5V8A9hbCA"
+    },
+    {
+      "body": {
+        "action": "patch.propose",
+        "chain": [
+          "g_2695ad253200",
+          "g_824f3a2eec18"
+        ],
+        "cnf": "0bNP-QxmZBLd126LeYSCvZVWWe6D-twVq8ls2jpDgbU",
+        "cost": 1,
+        "grant_id": "g_2695ad253200",
+        "operation_id": "op_8790ecf6de4f41d090e435cb040afb6c",
+        "outcome": "completed",
+        "policy": "passport/1",
+        "request_digest": "b71d2e96835adeb685803970e4f5d518c405f909b3f17fb37f30a26ecb247db0",
+        "resource": "repo/checkout",
+        "result_digest": "78d4e95ab078ee27d8479439c0880de16f3476613aaafee230911076c1e60610",
+        "run_id": "run_22ee9923993f",
+        "time": 1793481165.3230286
+      },
+      "signature": "-4TDg7yzNJFuNl0uYoOR9xIYqPm7OaZ-5JXa2Tn-Ge0tTA-SGBNWzj4La8eH6L-nAlopc4dceFLGQOmbLSOwAA"
+    },
+    {
+      "body": {
+        "action": "code.read",
+        "chain": [
+          "g_2695ad253200",
+          "g_824f3a2eec18"
+        ],
+        "cnf": "0bNP-QxmZBLd126LeYSCvZVWWe6D-twVq8ls2jpDgbU",
+        "cost": 1,
+        "grant_id": "g_2695ad253200",
+        "operation_id": "op_020094087a2c4bab85e47c4fb13163f8",
+        "outcome": "completed",
+        "policy": "passport/1",
+        "request_digest": "8e7f816baa0e5f9bd74b73aeafcfb4c1cd615008896ea4d1bd229882e6be4e81",
+        "resource": "repo/checkout",
+        "result_digest": "0bdd172fa87ee5f315abb28b09068194a8699066dc8e8d32ab41a3a9a941f282",
+        "run_id": "run_22ee9923993f",
+        "time": 1793481160.7085335
+      },
+      "signature": "NCEX3XyO_7Efhd1k3muJ5S7j0htAY8sBDfrK7Uv6uECdQnygQE7u_6en_wILaza5gjDyOuSxOaULHFv0m0J1Aw"
+    }
+  ],
+  "reconciliations": [],
+  "metrics": {},
+  "credential_mode": "synthetic"
+}
