@@ -9,6 +9,12 @@ This is a local security research project, not a marketing-only mockup. Preserve
 - Test: `python -m pytest -q`
 - Measure: `python scripts/benchmark.py`
 - Reproduce incident: `python scripts/run_scenario.py`
+- Verify evidence offline: `python scripts/verify_evidence.py EVIDENCE.json --public-key-file KEY.txt [--checkpoints WITNESS.jsonl]`
+- Checkpoint the event chain: `python scripts/checkpoint.py [--run RUN_ID] [--witness PATH]`
+- Reconcile unresolved operations: `python scripts/reconcile.py` lists them; add `OPERATION_ID --outcome completed|not_executed --reason "..."`, or `OPERATION_ID --lookup`
+- Revocation experiment (simulation): `python scripts/revocation_experiment.py`
+- Record a live-model run (needs a running gateway and the `claude` CLI; costs API usage): `python scripts/record_live_run.py --name NAME [--require-mode synthetic|1password-cli]`
+- Live 1Password check (opt-in, real lookup): `python scripts/check_1password.py`; see `docs/1password.md`
 
 Use the repository's `.venv` when available. No frontend build is required. Reload the browser after changes to `web/`.
 
