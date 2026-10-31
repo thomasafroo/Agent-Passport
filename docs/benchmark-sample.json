@@ -1,0 +1,36 @@
+{
+  "environment": {
+    "python": "3.13.3",
+    "os": "Windows-11-10.0.26200-SP0",
+    "storage": "local SQLite WAL, synchronous default",
+    "worker_threads": 32
+  },
+  "protected": {
+    "agents": 100,
+    "budget": 10,
+    "outcomes": {
+      "BUDGET_EXHAUSTED": 90,
+      "completed": 10
+    },
+    "elapsed_ms": 1986.91
+  },
+  "naive_check_then_act": {
+    "workers": 32,
+    "budget": 10,
+    "actual_spent": 32,
+    "scheduling": "barrier forces worst-case concurrent reads; deliberately unsafe comparison"
+  },
+  "authorization_and_reservation": {
+    "samples": 200,
+    "median_ms": 3.834,
+    "p95_ms": 4.764,
+    "max_ms": 6.759
+  },
+  "revoke_call_to_observed_denial": {
+    "samples": 30,
+    "median_ms": 6.911,
+    "p95_ms": 7.298,
+    "max_ms": 7.507
+  },
+  "limits": "Single host. Includes local DB opening, transaction and audit costs. No network partitions or distributed caches. Timing is not a guaranteed latency bound."
+}

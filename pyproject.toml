@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-passport"
+version = "0.1.0"
+description = "Agents can multiply. Their authority cannot."
+requires-python = ">=3.11"
+dependencies = ["fastapi==0.137.2", "uvicorn==0.41.0", "cryptography==49.0.0"]
+
+[project.optional-dependencies]
+dev = ["pytest==9.0.3", "httpx==0.28.1"]
+
+[tool.setuptools.packages.find]
+include = ["agent_passport*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
