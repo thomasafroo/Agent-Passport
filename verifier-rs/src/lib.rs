@@ -1,7 +1,7 @@
 //! Independent offline verifier for Agent Passport evidence exports.
 //!
 //! It reaches the same verdicts as `scripts/verify_evidence.py`: pinned issuer key,
-//! hash-linked event chain, operation receipts, reconciliation receipts and witnessed
+//! hash-linked event chain, operation, approval and lifecycle receipts, reconciliations and witnessed
 //! checkpoints. Signatures attest issuer statements, not execution truth, and the key
 //! must be pinned out of band. See `docs/rust-verifier.md`.
 //!

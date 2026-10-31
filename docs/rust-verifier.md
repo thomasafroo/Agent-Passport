@@ -12,7 +12,7 @@ cargo test
 cargo run --release -- ../docs/live-runs/run5-evidence.json --public-key-file ../docs/live-runs/run5-9-issuer-public-key.txt --checkpoints ../docs/live-runs/run5-checkpoint.jsonl
 ```
 
-The arguments, output and exit codes are those of the Python script: `EVIDENCE.json`, then `--public-key-file KEY.txt` or `--public-key=KEY` (keys are unpadded URL-safe base64 and can begin with `-`, so pass them with `=`), and optionally `--checkpoints WITNESS.jsonl`. A valid file prints the same JSON report (`valid`, `events`, `receipts`, `reconciliations`, `head`, `checkpoints`, `anchored_events`, `unanchored_events`, `limitation`) and exits 0. A failure prints `Verification failed: ...` on stderr and exits 1. A usage error exits 2.
+The arguments, output and exit codes are those of the Python script: `EVIDENCE.json`, then `--public-key-file KEY.txt` or `--public-key=KEY` (keys are unpadded URL-safe base64 and can begin with `-`, so pass them with `=`), and optionally `--checkpoints WITNESS.jsonl`. A valid file prints the same JSON report (`valid`, `events`, `receipts`, `reconciliations`, `approvals`, `lifecycle`, `head`, `checkpoints`, `anchored_events`, `unanchored_events`, `limitation`) and exits 0. A failure prints `Verification failed: ...` on stderr and exits 1. A usage error exits 2.
 
 Dependencies are `ed25519-dalek` 2.2.0 and `sha2` 0.10.9 from crates.io, pinned exactly in `Cargo.toml` and locked in `Cargo.lock`. Argument parsing is hand-written to avoid further dependencies.
 
@@ -22,9 +22,12 @@ The same checks as `verify_evidence.py`, in the same order, with the same failur
 
 1. The evidence's `public_key` equals the independently pinned key: `Issuer does not match pinned key`.
 2. Each event's `previous` is the previous event's hash (zeros for the first), and its `hash` is the SHA-256 of the canonical event body without `seq` and `hash`: `Event chain is altered or reordered`.
-3. Each operation receipt has a valid Ed25519 signature by the pinned key over its canonical body and has no `type` field, so a signed reconciliation or checkpoint cannot pose as one: `Invalid receipt signature`. Its `run_id` is the evidence's run: `Receipt belongs to another run`.
-4. Each reconciliation has a valid signature and `type` equal to `reconciliation`: `Invalid reconciliation signature`, `Reconciliation belongs to another run`.
-5. With a witness file, every non-blank line is parsed and the entries for this run are kept (`The witness file holds no checkpoint for this run` if none). Each must have a valid signature and `type` equal to `checkpoint` (`Invalid checkpoint signature`), belong to the run, have a non-negative integer `size` that is not a boolean (`Checkpoint size is invalid`), not cover more events than the export holds (`Evidence is missing events that a checkpoint covers`), and have a `head` equal to the hash at position `size` (`Event history differs from a checkpoint`).
+3. The first root grant supplies the owner to compare with signed statements; legacy exports without an owner use null. Each approval has a valid signature, `type: approval`, an approved or denied decision, and the current run ID. Approved bodies are indexed by operation ID and their canonical SHA-256 digest.
+4. Each operation receipt has a valid Ed25519 signature and no `type`, so another signed statement cannot pose as one. It belongs to the current run and owner. If it cites an approval, that operation's approved body must be present with the cited digest.
+5. Each reconciliation has a valid signature, `type: reconciliation`, and the current run and owner. Each lifecycle receipt has a valid signature, `type: lifecycle`, and the root's non-null owner ID.
+6. With a witness file, every non-blank line is parsed and the entries for this run are kept (`The witness file holds no checkpoint for this run` if none). Each must have a valid signature and `type` equal to `checkpoint` (`Invalid checkpoint signature`), belong to the run, have a non-negative integer `size` that is not a boolean (`Checkpoint size is invalid`), not cover more events than the export holds (`Evidence is missing events that a checkpoint covers`), and have a `head` equal to the hash at position `size` (`Event history differs from a checkpoint`).
+
+Cross-tests also cover approved and denied requests, missing or substituted approval citations, deprovisioning and reactivation evidence, altered and missing owner fields, cross-type substitutions, and malformed approval, lifecycle, grant and event collections. Both CLIs report malformed structures as verification failures without a traceback. All committed live-run evidence remains compatible.
 
 `tests/test_rust_verifier.py` generates evidence with the Python engine and runs both command-line verifiers on the same files: valid evidence with unicode event text, a reconciliation and two checkpoints, then a changed event, reordered events, a dropped suffix with and without a checkpoint, a fully recomputed chain with and without a checkpoint, altered receipts and reconciliations, receipts, reconciliations and checkpoints posing as one another, a wrong key, statements from another run, forged checkpoint sizes, awkward numbers and strings, and the committed live runs. It requires identical exit codes, reports and messages. It is skipped when `cargo` is not installed, except in CI. `cargo test` checks every `docs/live-runs` export against its committed key, runs 5 to 9 with their checkpoints.
 
@@ -42,7 +45,7 @@ The verification logic (`src/verify.rs`) follows Python's semantics on unexpecte
 
 ## Known divergences
 
-- **Messages for malformed input.** Check failures print exactly Python's messages, and a missing key prints Python's `KeyError` form (`'receipts'`). JSON syntax errors, invalid UTF-8 and type errors print different wording. Inputs on which the Python script exits with an uncaught exception (for example a list where an event object belongs) fail in Rust with a message instead of a traceback. The exit code is 1 in every such case.
+- **Messages for malformed input.** Check failures and modeled `KeyError`, `TypeError` and `AttributeError` failures match Python's messages. JSON syntax errors and invalid UTF-8 can have different wording. Both CLIs fail with exit code 1 for these malformed inputs.
 - **Nesting depth.** Rust rejects containers nested more than 2000 deep. Python's limit depends on the interpreter and platform (CPython 3.13 on Windows parses 2000 levels and fails before 5000). Evidence nested between the two limits is accepted only by Python. Issuer-generated evidence is nested a few levels deep.
 - **Ed25519 edge cases.** Python uses OpenSSL through `cryptography`; Rust uses `ed25519-dalek`'s default `verify`. Both reject non-canonical `s` and compare the recomputed `R` by its encoding (cofactorless). They could in principle differ on deliberately malformed public keys, such as non-canonical point encodings. The key is pinned by the verifier, not taken from the evidence, so this matters only if the pinned key itself was crafted that way.
 
@@ -51,6 +54,7 @@ The verification logic (`src/verify.rs`) follows Python's semantics on unexpecte
 The same limits as the Python verifier, and nothing more:
 
 - Signatures attest issuer statements, not execution truth. A reconciliation attests an operator's decision, not the upstream effect.
+- Approval receipts attest a local operator's decision, not its correctness; lifecycle receipts attest provisioning changes, not verified human identity. Owner matching does not authenticate the unsigned grants collection or prove lifecycle completeness.
 - The key must be pinned independently. The evidence's own `public_key` is compared with the pinned key, never trusted.
 - An unanchored event chain cannot prove completeness or prevent wholesale rewriting. Checkpoints anchor only the prefix they cover, only as far as the witness copy is independent of the issuer, and they never come from the evidence being checked. Events after the latest checkpoint are reported as unanchored.
 - The issuer key holder can sign a checkpoint of any history, so a checkpoint shows what the issuer's log contained when it was witnessed, not that it was truthful.

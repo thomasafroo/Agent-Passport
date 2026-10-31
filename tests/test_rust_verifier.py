@@ -319,6 +319,65 @@ def test_approval_checks_match(rust_verifier, scenario):
         body = {**changed["approvals"][approved]["body"], field: value}
         changed["approvals"][approved] = sign(engine, body)
         expect_failure(compare(rust_verifier, s["tmp"], changed, key), message)
+
+
+def test_lifecycle_and_owner_checks_match(rust_verifier, scenario):
+    s, engine = scenario, scenario["engine"]
+    evidence = s["evidence"]
+    owner = next(g["owner"] for g in evidence["grants"] if g["parent"] is None)
+    engine.deprovision_owner(owner)
+    engine.reactivate_owner(owner)
+    evidence = engine.evidence(s["run_id"])
+    key = engine.public_key
+    code, report = compare(rust_verifier, s["tmp"], evidence, key, s["checkpoints"])
+    assert code == 0 and report["lifecycle"] == 3
+    for field in ("active", "epoch", "runs", "actor"):
+        changed = copy.deepcopy(evidence); changed["lifecycle"][1]["body"][field] = "tampered"
+        expect_failure(compare(rust_verifier, s["tmp"], changed, key), "Invalid lifecycle signature")
+    for kind, field, message in [("receipts", "owner", "Receipt belongs to another owner"),
+                                 ("reconciliations", "owner", "Reconciliation belongs to another owner"),
+                                 ("lifecycle", "owner_id", "Lifecycle receipt belongs to another owner")]:
+        for missing in (False, True):
+            changed = copy.deepcopy(evidence)
+            body = changed[kind][0]["body"]
+            if missing:
+                del body[field]
+            else:
+                body[field] = "another-owner"
+            changed[kind][0] = sign(engine, body)
+            expect_failure(compare(rust_verifier, s["tmp"], changed, key), "'owner_id'" if missing and kind == "lifecycle" else message)
+    for target, source, message in [("receipts", "lifecycle", "Invalid receipt signature"),
+                                    ("reconciliations", "lifecycle", "Invalid reconciliation signature"),
+                                    ("lifecycle", "receipts", "Invalid lifecycle signature"),
+                                    ("lifecycle", "reconciliations", "Invalid lifecycle signature"),
+                                    ("approvals", "lifecycle", "Invalid approval signature")]:
+        changed = copy.deepcopy(evidence); changed[target].append(evidence[source][0])
+        expect_failure(compare(rust_verifier, s["tmp"], changed, key), message)
+    changed = copy.deepcopy(evidence)
+    changed["grants"] = []
+    changed["receipts"] = changed["reconciliations"] = []
+    expect_failure(compare(rust_verifier, s["tmp"], changed, key), "Lifecycle receipt belongs to another owner")
+
+
+@pytest.mark.parametrize("kind,value", [("approvals", None), ("approvals", [None]), ("approvals", [{}]),
+                                      ("lifecycle", None), ("lifecycle", [None]), ("grants", [None]),
+                                      ("events", [1])])
+def test_malformed_new_collections_match_without_tracebacks(rust_verifier, scenario, kind, value):
+    s, key = scenario, scenario["engine"].public_key
+    changed = copy.deepcopy(s["evidence"]); changed[kind] = value
+    code, detail = compare(rust_verifier, s["tmp"], changed, key)
+    assert code == 1 and detail.startswith("Verification failed:")
+
+
+def test_missing_and_substituted_approvals_match(rust_verifier, scenario):
+    s, engine = scenario, scenario["engine"]
+    root = engine.create_run()
+    executor = Executor(engine)
+    pair = ("staging/checkout", "config.write")
+    oid = executor.execute(root["token"], *pair, "approved")["operation_id"]
+    engine.decide_approval(oid, "approve", REASON)
+    executor.execute(root["token"], *pair, "approved")
+    evidence, key = engine.evidence(root["run_id"]), engine.public_key
     dropped = copy.deepcopy(evidence); dropped["approvals"] = []
     expect_failure(compare(rust_verifier, s["tmp"], dropped, key), "Receipt cites an approval missing from the evidence")
     for field, imposter, message in [("receipts", evidence["approvals"][0], "Invalid receipt signature"),

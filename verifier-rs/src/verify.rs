@@ -21,8 +21,7 @@ pub enum Failure {
     Decode(String),
     /// A `KeyError`, `TypeError` or `AttributeError`, reported as a failure.
     Malformed(String),
-    /// Input on which the Python CLI exits with an uncaught exception (for example an
-    /// `AttributeError` when a list stands where a dict is expected). Still a failure.
+    /// An `AttributeError` when a list stands where a dict is expected.
     Unsupported(String),
 }
 
