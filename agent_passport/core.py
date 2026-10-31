@@ -6,6 +6,7 @@ An upstream call runs outside that lock; a reservation is not proof of an effect
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterable
 from contextlib import contextmanager
 import hashlib
 import json
@@ -122,7 +123,7 @@ def verify_receipt(receipt, public_key):
 
 
 class Passport:
-    def __init__(self, directory, clock=time.time, issuer_key=None, approval_required=APPROVAL_REQUIRED):
+    def __init__(self, directory, clock=time.time, issuer_key=None, approval_required: Iterable[tuple[str, str]] = APPROVAL_REQUIRED):
         """issuer_key: an operator-supplied Ed25519PrivateKey (for example resolved from 1Password).
 
         When given, it is used as is and nothing about it is written to the state directory.

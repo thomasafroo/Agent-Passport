@@ -182,7 +182,7 @@ class Demo:
                 "completed": "The approved config change ran once. Its receipt is bound to the operator's signed approval.",
                 "approval_denied": "The operator denied the config change. It never ran, and its unit returned to the pool.",
                 "approval_lapsed": "The approval lapsed before the change was dispatched. It never ran, and its unit returned to the pool.",
-            }.get(state, f"The config change was not performed: {result.get('rule') or state}.")
+            }.get(state or "", f"The config change was not performed: {result.get('rule') or state}.")
             return self.snapshot()
 
     def fork(self, count=32):

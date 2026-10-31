@@ -20,6 +20,12 @@ class Service:
         return {"synthetic": True}
 
 
+def operation_state(engine, oid):
+    operation = engine.operation(oid)
+    assert operation is not None
+    return operation["state"]
+
+
 @pytest.mark.parametrize("approved", [False, True])
 def test_owner_cut_withdraws_all_waiting_work_once_and_preserves_other_owners(tmp_path, approved):
     engine = Passport(tmp_path)
@@ -38,8 +44,8 @@ def test_owner_cut_withdraws_all_waiting_work_once_and_preserves_other_owners(tm
         waiting.append((root, worker, oid))
     engine.deprovision_owner(owner)
     # Immediate cancellation, without relying on a listing, retry, or expiry sweep.
-    for root, worker, oid in waiting:
-        assert engine.operation(oid)["state"] == "cancelled"
+    for root, _worker, oid in waiting:
+        assert operation_state(engine, oid) == "cancelled"
         run = engine.snapshot(root["run_id"])["run"]
         assert (run["reserved"], run["spent"]) == (0, 0)
         for decision in ("approve", "deny"):
@@ -58,7 +64,7 @@ def test_owner_cut_withdraws_all_waiting_work_once_and_preserves_other_owners(tm
         assert (snapshot["run"]["reserved"], snapshot["run"]["spent"]) == (0, 0)
         assert len([e for e in snapshot["events"] if e.get("operation_id") == oid and e["rule"] == "OWNER_DEPROVISIONED"]) == 1
     assert service.calls == []
-    assert engine.operation(unaffected)["state"] == "awaiting_approval"
+    assert operation_state(engine, unaffected) == "awaiting_approval"
     engine.decide_approval(unaffected, "approve", REASON)
     assert executor.execute(other["token"], *CONFIG, "change")["state"] == "completed"
     assert service.calls == [unaffected]
@@ -86,7 +92,7 @@ def test_approval_and_owner_cut_race_never_leaves_dispatchable_work(tmp_path):
         decision, deprovision = pool.submit(approve), pool.submit(cut)
         assert decision.result() in {"approved", "OPERATION_STATE"}
         deprovision.result()
-    assert engine.operation(oid)["state"] == "cancelled"
+    assert operation_state(engine, oid) == "cancelled"
     assert engine.dispatch(oid) is False
     assert engine.snapshot(root["run_id"])["run"]["reserved"] == 0
 
@@ -110,7 +116,7 @@ def test_approved_dispatch_racing_owner_cut_obeys_commit_order(tmp_path):
         dispatched, deprovision = pool.submit(dispatch), pool.submit(cut)
         admitted = dispatched.result()
         deprovision.result()
-    assert engine.operation(oid)["state"] == ("dispatched" if admitted else "cancelled")
+    assert operation_state(engine, oid) == ("dispatched" if admitted else "cancelled")
     assert engine.snapshot(root["run_id"])["run"]["reserved"] == int(admitted)
     if admitted:
         engine.settle(oid, "completed", {"synthetic": True})

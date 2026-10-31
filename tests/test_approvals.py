@@ -7,8 +7,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from agent_passport.broker import Executor
-from agent_passport.core import (APPROVAL_REQUEST_TTL, APPROVAL_TTL, Denied, Holder, Passport, delegate_fields,
-                                 execute_fields, verify_receipt)
+from agent_passport.core import (APPROVAL_REQUEST_TTL, APPROVAL_TTL, Denied, Holder, Passport, execute_fields, verify_receipt)
 from agent_passport.mcp_server import Adapter
 from agent_passport.server import create_app
 from scripts.approve import main as approve_cli

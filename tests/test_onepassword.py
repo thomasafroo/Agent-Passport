@@ -17,7 +17,7 @@ import pytest
 
 from agent_passport.broker import (CredentialUnavailable, Executor, OnePasswordCLI, OnePasswordCredentials, OnePasswordSDK,
                                    backend_from_environment, load_reference_map, passport_from_environment)
-from agent_passport.core import CATALOG, Passport, b64, verify_receipt
+from agent_passport.core import CATALOG, Denied, Passport, b64, verify_receipt
 from agent_passport.server import create_app
 
 SECRET = "fixture-key-value-for-tests"
@@ -86,7 +86,7 @@ def fake_onepassword(monkeypatch):
     """Install a fake `onepassword` module so the real import path in OnePasswordSDK is exercised."""
     fake = FakeSDK()
     module = ModuleType("onepassword")
-    module.Client = SimpleNamespace(authenticate=fake.authenticate)
+    monkeypatch.setattr(module, "Client", SimpleNamespace(authenticate=fake.authenticate), raising=False)
     monkeypatch.setitem(sys.modules, "onepassword", module)
     return fake
 
@@ -148,14 +148,15 @@ def test_sdk_failure_detail_never_reaches_results_events_receipts_or_http(tmp_pa
     monkeypatch.setenv("OP_SERVICE_ACCOUNT_TOKEN", TOKEN)
     monkeypatch.setenv("PASSPORT_OP_REFERENCE", "op://Test Vault/Logs/credential")
     monkeypatch.setenv("PASSPORT_FIXTURE_KEY_SHA256", digest(SECRET))
-    client = TestClient(create_app(tmp_path))
+    app = create_app(tmp_path)
+    client = TestClient(app)
     assert client.get("/health").json()["credential_mode"] == "1password-sdk"
-    root = client.app.state.passport.create_run(budget=2)
+    root = app.state.passport.create_run(budget=2)
     response = client.post("/api/agent/execute", json={"resource": "staging/checkout", "action": "logs.read", "request_key": "k"},
                            headers={"Authorization": f"Bearer {root['token']}"})
     assert response.status_code == 200 and response.json()["state"] == "failed"
     console = {"x-passport-console": client.get("/api/session").json()["console_token"]}
-    evidence = client.app.state.passport.evidence(root["run_id"])
+    evidence = app.state.passport.evidence(root["run_id"])
     surfaces = [response.text, json.dumps(evidence), client.get("/api/evidence", headers=console).text,
                 client.get("/health").text, caplog.text]
     for surface in surfaces:
@@ -169,8 +170,9 @@ def test_sdk_success_end_to_end_reports_mode_in_health_and_evidence(tmp_path, mo
     monkeypatch.setenv("OP_SERVICE_ACCOUNT_TOKEN", TOKEN)
     monkeypatch.setenv("PASSPORT_OP_REFERENCE", "op://Test Vault/Logs/credential")
     monkeypatch.setenv("PASSPORT_FIXTURE_KEY_SHA256", digest(SECRET))
-    client = TestClient(create_app(tmp_path))
-    root = client.app.state.passport.create_run(budget=1)
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    root = app.state.passport.create_run(budget=1)
     response = client.post("/api/agent/execute", json={"resource": "staging/checkout", "action": "logs.read", "request_key": "k"},
                            headers={"Authorization": f"Bearer {root['token']}"})
     assert response.json()["state"] == "completed" and SECRET not in response.text and TOKEN not in response.text
@@ -180,8 +182,9 @@ def test_sdk_success_end_to_end_reports_mode_in_health_and_evidence(tmp_path, mo
 
 
 def test_agents_cannot_choose_the_provider_or_a_reference(tmp_path):
-    client = TestClient(create_app(tmp_path))
-    root = client.app.state.passport.create_run()
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    root = app.state.passport.create_run()
     auth = {"Authorization": f"Bearer {root['token']}"}
     body = {"resource": "staging/checkout", "action": "logs.read", "request_key": "x"}
     for extra in ({"provider": "sdk"}, {"reference": "op://Other/Item/field"}, {"credential_mode": "1password-sdk"}):
@@ -302,7 +305,7 @@ def test_executor_resolves_only_the_dispatched_pairs_reference(tmp_path, monkeyp
         assert executor.execute(root["token"], *pair, "key-" + pair[1])["state"] == "completed"
         assert backend.reads[len(before):] == [REFS[pair]]
     # A forbidden pair is denied before any reference is resolved.
-    with pytest.raises(Exception):
+    with pytest.raises(Denied):
         executor.execute(root["token"], "production/checkout", "deploy.execute", "deny")
     assert backend.reads == [REFS[("repo/checkout", "code.read")], REFS[("staging/checkout", "logs.read")]]
 
@@ -420,10 +423,11 @@ def test_server_uses_issuer_key_from_sdk_and_reports_its_source(tmp_path, monkey
     monkeypatch.setenv("OP_SERVICE_ACCOUNT_TOKEN", TOKEN)
     monkeypatch.setenv("PASSPORT_ISSUER_KEY_REFERENCE", "op://Test Vault/Issuer/key")
     state = tmp_path / "state"
-    client = TestClient(create_app(state))
+    app = create_app(state)
+    client = TestClient(app)
     health = client.get("/health").json()
     assert health == {"status": "ok", "credential_mode": "synthetic", "issuer_key": "1password-sdk"}
-    assert client.app.state.passport.public_key == Passport(tmp_path / "other", issuer_key=key).public_key
+    assert app.state.passport.public_key == Passport(tmp_path / "other", issuer_key=key).public_key
     assert not (state / "issuer.key").exists() and raw not in state_bytes(state)
     assert b64(raw) not in client.get("/health").text
 

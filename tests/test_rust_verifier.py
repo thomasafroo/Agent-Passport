@@ -125,8 +125,10 @@ def sign(engine, body):
 def test_valid_evidence_gives_identical_reports(rust_verifier, scenario):
     s, key = scenario, scenario["engine"].public_key
     code, report = compare(rust_verifier, s["tmp"], s["evidence"], key)
+    assert isinstance(report, dict)
     assert code == 0 and report["reconciliations"] == 1 and report["anchored_events"] == 0
     code, report = compare(rust_verifier, s["tmp"], s["evidence"], key, s["checkpoints"])
+    assert isinstance(report, dict)
     assert code == 0 and report["checkpoints"] == 2
     assert report["anchored_events"] == s["checkpoints"][1]["body"]["size"]
     # ASCII-escaped and UTF-8 exports of the same evidence verify alike.
@@ -149,6 +151,7 @@ def test_dropped_suffix_passes_unanchored_and_fails_with_a_checkpoint(rust_verif
     s, key = scenario, scenario["engine"].public_key
     dropped = copy.deepcopy(s["evidence"]); dropped["events"].pop()
     code, report = compare(rust_verifier, s["tmp"], dropped, key)
+    assert isinstance(report, dict)
     assert code == 0 and "completeness" in report["limitation"]
     expect_failure(compare(rust_verifier, s["tmp"], dropped, key, s["checkpoints"]),
                    "Evidence is missing events that a checkpoint covers")
@@ -205,6 +208,7 @@ def test_other_runs_statements_fail_alike(rust_verifier, scenario):
     expect_failure(compare(rust_verifier, s["tmp"], mixed, key), "Receipt belongs to another run")
     # A witness file holding several runs keeps only this run's checkpoints.
     code, report = compare(rust_verifier, s["tmp"], s["evidence"], key, [s["other_checkpoint"], *s["checkpoints"]])
+    assert isinstance(report, dict)
     assert code == 0 and report["checkpoints"] == 2
 
 
@@ -219,6 +223,7 @@ def test_checkpoint_size_rules_match(rust_verifier, scenario):
         expect_failure(compare(rust_verifier, s["tmp"], s["evidence"], key, [forged]), message)
     empty = sign(engine, {**body, "size": 0, "head": "0" * 64})
     code, report = compare(rust_verifier, s["tmp"], s["evidence"], key, [empty])
+    assert isinstance(report, dict)
     assert code == 0 and report["anchored_events"] == 0
 
 
@@ -247,12 +252,14 @@ def test_canonicalization_matches_python_on_awkward_values(rust_verifier, scenar
     assert evidence["events"][-1]["payload"]["ints"][-1] == int("9" * 300)
     # A lone surrogate cannot be written as UTF-8, so this export uses \u escapes.
     code, report = compare(rust_verifier, s["tmp"], evidence, engine.public_key, s["checkpoints"], ascii_only=True)
+    assert isinstance(report, dict)
     assert code == 0 and report["head"] == evidence["events"][-1]["hash"]
     for seed in range(1, 4):
         variant = copy.deepcopy(evidence)
         variant["events"][-1]["payload"] = awkward_values(seed)
         rechain(variant["events"])
         code, report = compare(rust_verifier, s["tmp"], variant, engine.public_key, ascii_only=True)
+        assert isinstance(report, dict)
         assert code == 0 and report["head"] == variant["events"][-1]["hash"]
 
 
@@ -260,6 +267,7 @@ def test_python_type_quirks_match(rust_verifier, scenario):
     s, key = scenario, scenario["engine"].public_key
     shaped = copy.deepcopy(s["evidence"]); shaped["receipts"] = {}; shaped["reconciliations"] = ""
     code, report = compare(rust_verifier, s["tmp"], shaped, key)
+    assert isinstance(report, dict)
     assert code == 0 and report["receipts"] == 0 and report["reconciliations"] == 0
     missing = copy.deepcopy(s["evidence"]); del missing["receipts"]
     expect_failure(compare(rust_verifier, s["tmp"], missing, key), "'receipts'")
@@ -308,7 +316,9 @@ def test_approval_checks_match(rust_verifier, scenario):
         executor.execute(root["token"], *pair, name)
     evidence = engine.evidence(root["run_id"])
     key = engine.public_key
-    assert compare(rust_verifier, s["tmp"], evidence, key)[1]["approvals"] == 2
+    code, report = compare(rust_verifier, s["tmp"], evidence, key)
+    assert isinstance(report, dict)
+    assert code == 0 and report["approvals"] == 2
     approved = next(i for i, r in enumerate(evidence["approvals"]) if r["body"]["decision"] == "approved")
     changed = copy.deepcopy(evidence); changed["approvals"][approved]["body"]["reason"] = "tampered"
     expect_failure(compare(rust_verifier, s["tmp"], changed, key), "Invalid approval signature")
@@ -330,6 +340,7 @@ def test_lifecycle_and_owner_checks_match(rust_verifier, scenario):
     evidence = engine.evidence(s["run_id"])
     key = engine.public_key
     code, report = compare(rust_verifier, s["tmp"], evidence, key, s["checkpoints"])
+    assert isinstance(report, dict)
     assert code == 0 and report["lifecycle"] == 3
     for field in ("active", "epoch", "runs", "actor"):
         changed = copy.deepcopy(evidence); changed["lifecycle"][1]["body"][field] = "tampered"
@@ -366,7 +377,7 @@ def test_malformed_new_collections_match_without_tracebacks(rust_verifier, scena
     s, key = scenario, scenario["engine"].public_key
     changed = copy.deepcopy(s["evidence"]); changed[kind] = value
     code, detail = compare(rust_verifier, s["tmp"], changed, key)
-    assert code == 1 and detail.startswith("Verification failed:")
+    assert code == 1 and isinstance(detail, str) and detail.startswith("Verification failed:")
 
 
 def test_missing_and_substituted_approvals_match(rust_verifier, scenario):

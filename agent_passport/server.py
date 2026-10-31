@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .broker import Executor, backend_from_environment, passport_from_environment, uses_1password
-from .core import Passport, Denied
+from .core import Denied
 from .demo import Demo
 from .scim import router as scim_router
 

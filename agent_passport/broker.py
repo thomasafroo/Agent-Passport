@@ -152,7 +152,7 @@ class OnePasswordSDK:
     so no SDK exception text, token, or secret is chained, logged, or forwarded.
     """
     mode = "1password-sdk"
-    TIMEOUT = 20
+    TIMEOUT: float = 20
     INTEGRATION = ("Agent Passport", "0.1.0")
 
     def __init__(self, token, client_factory=None):
@@ -369,6 +369,7 @@ def passport_from_environment(directory, backend=None, environ=None, **kwargs):
     key = issuer_key_from_environment(backend, environ)
     passport = Passport(directory, issuer_key=key, **kwargs)
     if key is not None:
+        assert backend is not None  # a configured key is resolved through this backend
         passport.issuer_key_source = backend.mode
     return passport
 
