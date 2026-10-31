@@ -154,7 +154,7 @@ def test_a_lookup_decision_is_final(engine, effects):
 class BrokenProvider:
     mode = "synthetic"
 
-    def resolve(self):
+    def resolve(self, *pair):
         raise CredentialUnavailable("secret-bearing detail")
 
 
