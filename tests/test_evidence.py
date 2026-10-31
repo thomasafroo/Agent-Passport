@@ -81,3 +81,12 @@ def test_cli_accepts_issuer_key_that_starts_with_dash(tmp_path):
     for flags in ([f"--public-key={public}"], ["--public-key-file", str(key_file)]):
         result = subprocess.run([sys.executable, str(script), str(export), *flags], capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("document", [[], None, {"public_key": "KEY", "events": [None], "receipts": [], "run": {}}])
+def test_cli_reports_malformed_evidence_as_a_failed_verification(tmp_path, document):
+    export = tmp_path / "evidence.json"
+    export.write_text(json.dumps(document), encoding="utf-8")
+    script = Path(__file__).resolve().parents[1] / "scripts" / "verify_evidence.py"
+    result = subprocess.run([sys.executable, str(script), str(export), "--public-key=KEY"], capture_output=True, text=True)
+    assert result.returncode == 1 and result.stderr.startswith("Verification failed") and "Traceback" not in result.stderr
