@@ -66,7 +66,7 @@ python scripts/run_scenario.py
 
 The benchmark races 100 agents against a 10-unit budget and asserts exactly 10 completions and 90 budget denials. It also runs a deliberately unsafe check-then-act implementation with a barrier that forces the race, measures 200 sequential authorization/reservation transactions, and measures 30 revoke-then-deny round trips. Results are written to `artifacts/benchmark.json`.
 
-Tests cover multi-thread and multi-process contention, concurrent retries, resource/action pair isolation, altered signatures, foreign issuers, stale grants, revoked ancestors, queue expiry, crash persistence, refunds, unknown effects, signed receipts, secret-safe errors, and HTTP boundary checks. GitHub Actions runs the suite on Windows and Linux with Python 3.11 and 3.13; that matrix is configured, not yet independently observed running on GitHub.
+Tests cover multi-thread and multi-process contention, concurrent retries, resource/action pair isolation, altered signatures, foreign issuers, stale grants, revoked ancestors, queue expiry, crash persistence, refunds, unknown effects, signed receipts, secret-safe errors, and HTTP boundary checks. GitHub Actions runs the suite on Windows and Linux with Python 3.11 and 3.13; all four jobs passed on `main` on 2026-10-31. The suite includes a benchmark step whose timings on shared CI runners are not comparable to the local results.
 
 For offline evidence verification, obtain the issuer public key through a trusted channel (the local issuer is `.state/issuer.key`; **never share the private key**). The scenario runner writes a separate public-key file:
 
