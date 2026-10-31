@@ -45,14 +45,14 @@ The console can issue a passport to an MCP adapter so a real model, such as Clau
 
 Quick start on Windows, from the repository root while the gateway is running:
 
-1. In the console, select **Issue live passport** under **Put a real model behind the boundary**. The token is written to `.state/live-agent.token` and never shown.
-2. Register the adapter with Claude Code. `$PWD` expands to your local checkout, so no path is written into the repository:
+1. Register the adapter with Claude Code, then start a Claude Code session so the adapter is running. `$PWD` expands to your local checkout, so no path is written into the repository:
 
    ```powershell
    claude mcp add agent-passport -- "$PWD\.venv\Scripts\python.exe" -m agent_passport.mcp_server
    ```
 
    This uses Claude Code's default local scope, which stores the entry in your user settings. Avoid `--scope project`, which writes your absolute path into a committed `.mcp.json`. For Claude Desktop, which gives the cleaner isolation demo, use the JSON config in the guide.
+2. In the console, select **Issue live passport** under **Put a real model behind the boundary**. The token is written to `.state/live-agent.token` and never shown.
 3. Ask the model to investigate why staging checkout is failing.
 
 In [recorded runs with Claude Sonnet 5.5](docs/live-runs/README.md), the model declined the planted instruction on its own. When the operator prompt told it to obey log notes, it attempted the production deploy and an admin delegation; the gateway denied both while its legitimate work completed. After revocation in the console, its next call was denied.
