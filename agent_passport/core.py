@@ -111,11 +111,26 @@ def verify_receipt(receipt, public_key):
 
 
 class Passport:
-    def __init__(self, directory, clock=time.time):
+    def __init__(self, directory, clock=time.time, issuer_key=None):
+        """issuer_key: an operator-supplied Ed25519PrivateKey (for example resolved from 1Password).
+
+        When given, it is used as is and nothing about it is written to the state directory.
+        Otherwise the issuer key is read from, or created once in, `directory/issuer.key`.
+        """
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.path = self.directory / "passport.db"
         self.clock = clock
+        if issuer_key is not None:
+            if not isinstance(issuer_key, Ed25519PrivateKey):
+                raise TypeError("issuer_key must be an Ed25519 private key")
+            self.key, self.issuer_key_source = issuer_key, "supplied"
+        else:
+            self.key, self.issuer_key_source = self._file_key(), "file"
+        self.public_key = b64(self.key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))
+        self._initialize_schema()
+
+    def _file_key(self):
         key_path = self.directory / "issuer.key"
         if not key_path.exists():
             key = Ed25519PrivateKey.generate().private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
@@ -132,8 +147,9 @@ class Passport:
                 pass
             finally:
                 temporary.unlink()
-        self.key = Ed25519PrivateKey.from_private_bytes(key_path.read_bytes())
-        self.public_key = b64(self.key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))
+        return Ed25519PrivateKey.from_private_bytes(key_path.read_bytes())
+
+    def _initialize_schema(self):
         db = self.connect()
         try:
             # Journal-mode transitions may return BUSY immediately despite busy_timeout.

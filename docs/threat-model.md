@@ -37,6 +37,12 @@ The browser is the local human operator console. It can issue the scripted root 
 | Checkpoints, reconciliations and operation receipts cannot stand in for each other | Cross-type substitution tests |
 | Hostile agent input is refused, never a server error | Property tests of the agent HTTP API and of token and proof parsing; `scripts/fuzz.py` for longer runs |
 | The verifier rejects every change to hashed or signed content | Single-field mutation property over events, receipts, reconciliations and checkpoints; unsigned fields it does not check are listed in `docs/security-testing.md` |
+| 1Password SDK failures never reveal SDK exception text, the token, or the secret | Mocked SDK failures (auth, missing item, rate limit, timeout, empty and non-text values) carrying a fake secret and token; scans of the exception, result, events, receipts, `/api/evidence`, `/health`, and logs; no chained exception |
+| The SDK path works from a thread that already runs an event loop | Provider and executor called inside `asyncio.run`; the lookup runs on the provider's own loop |
+| Agents cannot choose the backend or a secret reference | Extra `provider`/`reference`/`credential_mode` fields rejected with 422; selection read only from operator environment |
+| Each operation resolves only its own mapped reference | Recording backend sees exactly the dispatched pair's reference; a denied pair resolves nothing; one pair's key fails another pair's verifier |
+| A malformed reference map stops startup | Missing, unknown, mixed, duplicated, non-`op://`, multi-line, and unreadable map tests; server startup test |
+| An issuer key from 1Password fails closed and never reaches disk | Unresolvable and wrong-length/encoding keys stop startup without creating a key file; state-directory scan for the raw and encoded key after signing |
 
 ## Explicit non-claims
 
@@ -54,6 +60,9 @@ The browser is the local human operator console. It can issue the scripted root 
 - Hash-linked events without a witnessed checkpoint are not a tamper-proof audit ledger. With one, only the prefix it covers is anchored, and only as well as the witness copy is kept out of the database owner's reach. The issuer key holder can sign a checkpoint of any history it likes.
 - There is no public hosting, user login, per-tenant isolation, rate limiter, retention policy, or production denial-of-service protection.
 - The private key is stored locally in a file. POSIX mode is restricted at creation; on Windows, protection relies on inherited user-directory ACLs. This is not HSM-backed key storage.
+- Loading the issuer key from 1Password (`PASSPORT_ISSUER_KEY_REFERENCE`) removes the file copy, not the key: it stays in the gateway's process memory, and anything that can read that memory or holds a token able to read the item can sign as the issuer.
+- The per-operation reference map limits what each operation fetches, not what the executor process could fetch. A compromised executor still holds the service account token (or the CLI session) and can read every item that token can read. Only the token's vault permissions bound that.
+- The 1Password SDK path is covered by mocked tests only and has not been run against a live account. The service account token sits in the gateway's process memory and environment for the life of the process.
 
 ## Deployment boundary
 

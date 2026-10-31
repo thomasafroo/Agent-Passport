@@ -52,7 +52,7 @@ def main(argv=None):
     parser.add_argument("--name", required=True, help="Label for the output files, such as run4.")
     parser.add_argument("--model", default="claude-sonnet-5-5")
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
-    parser.add_argument("--require-mode", choices=["synthetic", "1password-cli"],
+    parser.add_argument("--require-mode", choices=["synthetic", "1password-cli", "1password-sdk"],
                         help="Stop unless the gateway reports this credential mode.")
     parser.add_argument("--gateway", default=os.environ.get("PASSPORT_GATEWAY", "http://127.0.0.1:8787"))
     parser.add_argument("--state-dir", default=os.environ.get("PASSPORT_STATE_DIR", str(ROOT / ".state")))

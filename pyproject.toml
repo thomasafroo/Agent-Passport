@@ -11,7 +11,8 @@ dependencies = ["fastapi==0.137.2", "uvicorn==0.41.0", "cryptography==49.0.0"]
 
 [project.optional-dependencies]
 mcp = ["mcp==2.3.0"]
-dev = ["pytest==9.0.3", "httpx==0.28.1", "mcp==2.3.0", "hypothesis==6.170.14", "ruff==0.17.3", "pyright==1.1.414"]
+onepassword = ["onepassword-sdk==0.4.2"]
+dev = ["pytest==9.0.3", "httpx==0.28.1", "mcp==2.3.0", "onepassword-sdk==0.4.2", "hypothesis==6.170.14", "ruff==0.17.3", "pyright==1.1.414"]
 
 [tool.setuptools.packages.find]
 include = ["agent_passport*"]

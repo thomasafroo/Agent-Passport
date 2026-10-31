@@ -17,7 +17,8 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agent_passport.core import Passport, Denied
+from agent_passport.broker import passport_from_environment
+from agent_passport.core import Denied
 from scripts.verify_evidence import load_checkpoints, verify
 
 
@@ -50,7 +51,12 @@ def main(argv=None):
     parser.add_argument("--witness", default="artifacts/witness.jsonl")
     parser.add_argument("--state-dir", default=os.environ.get("PASSPORT_STATE_DIR", ".state"))
     args = parser.parse_args(argv)
-    passport = Passport(args.state_dir)
+    try:
+        # Sign with the gateway's issuer key, including one held in 1Password.
+        passport = passport_from_environment(args.state_dir)
+    except ValueError as error:
+        print(json.dumps({"witnessed": False, "error": str(error)}, indent=2), file=sys.stderr)
+        return 2
     try:
         checkpoint = witness(passport, args.run or latest_run(passport), args.witness)
     except Denied as error:

@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .broker import Executor
+from .broker import Executor, backend_from_environment, passport_from_environment, uses_1password
 from .core import Passport, Denied
 from .demo import Demo
 
@@ -69,8 +69,10 @@ class RequestSizeLimit:
 
 
 def create_app(directory=None):
-    passport = Passport(directory or os.environ.get("PASSPORT_STATE_DIR", ".state"))
-    executor = Executor.from_environment(passport)
+    # One operator-chosen 1Password backend serves both the issuer key and operation credentials.
+    backend = backend_from_environment() if uses_1password() else None
+    passport = passport_from_environment(directory or os.environ.get("PASSPORT_STATE_DIR", ".state"), backend)
+    executor = Executor.from_environment(passport, backend)
     demo = Demo(passport, executor)
     session = secrets.token_urlsafe(32)
     app = FastAPI(title="Agent Passport", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None)
@@ -195,7 +197,7 @@ def create_app(directory=None):
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "credential_mode": executor.provider.mode}
+        return {"status": "ok", "credential_mode": executor.provider.mode, "issuer_key": passport.issuer_key_source}
 
     web = Path(__file__).resolve().parent.parent / "web"
 

@@ -122,6 +122,14 @@ The allowed operation catalog maps fixed resource/action pairs to a synthetic se
 
 This validates credential separation and retrieval, not a production service integration. Python strings cannot be reliably zeroized. The host OS, PATH, CLI, issuer key, database, and trusted executor process are all inside the trust boundary.
 
+### Backends, per-operation references, and the issuer key
+
+`PASSPORT_OP_PROVIDER` selects the 1Password backend: `cli` (default, `op read`) or `sdk` (the official Python SDK with `OP_SERVICE_ACCOUNT_TOKEN`). It is read once at startup from the operator's environment; nothing on the agent API can name a backend, a reference, or a credential mode. The SDK is async-only, so its provider runs one private event loop on a daemon thread and submits each lookup there with a timeout; this works whether or not the calling thread already runs a loop. Both backends turn every failure into a fixed `CredentialUnavailable` message, which the executor settles as a pre-effect failure and refunds.
+
+`PASSPORT_OP_REFERENCES` maps each catalog resource/action pair to its own reference. The map must cover the catalog exactly, so a missing, extra, or mixed pair, a duplicated key, a non-`op://` or multi-line reference, or a malformed file stops startup. The executor resolves only the dispatched operation's reference, after `dispatch` has rechecked the ancestor chain; a denied request resolves nothing. The mapping narrows what each operation fetches. It does not narrow what the executor process could fetch with its token: that is bounded only by the token's own vault permissions.
+
+`PASSPORT_ISSUER_KEY_REFERENCE` loads the issuer's raw 32-byte Ed25519 private key (base64url) through the same backend instead of `.state/issuer.key`. Resolution happens before the engine opens its database. A configured reference that fails to resolve or decode stops startup; there is no fallback to a file key, and the key is never written to the state directory. The server and the operator scripts that sign (`reconcile.py`, `checkpoint.py`) load it the same way, so they sign as one issuer. The key remains in process memory while the gateway runs.
+
 ## Evidence
 
 Each event includes the hash of the previous event in its run. Receipts sign the operation ID, grant, ancestor IDs, request digest, resource/action, outcome, result digest, cost, policy version, and time using Ed25519. The offline verifier requires a caller-supplied pinned public key. Event and receipt exports use a consistent read transaction.
