@@ -8,7 +8,8 @@ Then run, from the repository root:
 
 The script resets the console run, starts a headless Claude Code session whose only tools are
 the adapter's three, issues the live passport once the adapter has registered its key, waits for
-the session to finish, and exports the run's signed evidence. Output goes to artifacts/live-runs/
+the session to finish, and exports the run's signed evidence and a signed checkpoint of its
+event chain. Output goes to artifacts/live-runs/
 (ignored by Git); review it before copying anything into docs/live-runs/.
 """
 import argparse
@@ -99,10 +100,15 @@ def main(argv=None):
                 session.kill()
                 raise SystemExit(f"The session did not finish within {args.timeout} seconds; partial transcript in {transcript}.")
 
+    # Checkpoint first: it covers a prefix of the evidence exported after it.
+    checkpoint = request(gateway, "POST", "/api/checkpoint", console)["checkpoint"]
     evidence = request(gateway, "GET", "/api/evidence", console)
     evidence_path = out / f"{args.name}-evidence.json"
     evidence_path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
-    checked = verify(evidence, evidence["public_key"])  # self-consistency only; pin the key independently
+    checkpoint_path = out / f"{args.name}-checkpoint.jsonl"
+    checkpoint_path.write_text(json.dumps(checkpoint, separators=(",", ":")) + "\n", encoding="utf-8")
+    # Self-consistency only: pin the key independently, and copy the checkpoint off this machine to anchor anything.
+    checked = verify(evidence, evidence["public_key"], [checkpoint])
 
     live = issued["live_grant"]
     branch = {g["id"] for g in evidence["grants"] if g["id"] == live or g["parent"] == live}
@@ -117,7 +123,7 @@ def main(argv=None):
     summary = {"name": args.name, "model": args.model, "credential_mode": evidence["credential_mode"], "decisions": decisions,
                "token_in_transcript": bool(token) and (token in text or token.split(".")[1] in text),
                "evidence_self_consistent": checked["valid"], "transcript": str(transcript.relative_to(ROOT)),
-               "evidence": str(evidence_path.relative_to(ROOT))}
+               "evidence": str(evidence_path.relative_to(ROOT)), "checkpoint": str(checkpoint_path.relative_to(ROOT))}
     print(json.dumps(summary, indent=2))
     return 1 if summary["token_in_transcript"] else 0
 

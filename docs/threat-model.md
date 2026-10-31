@@ -29,6 +29,9 @@ The browser is the local human operator console. It can issue the scripted root 
 | Unresolved operations are settled only by an operator decision | Time-advance retention test; agent-API and bearer-token rejection of reconcile routes |
 | A reconciliation applies once and is never re-executed | Concurrent-decision, retry-after-decision, late dispatch and late settlement tests |
 | Reconciliations are signed and verifiable offline | Reconciliation receipt tamper and evidence verifier tests |
+| A witnessed checkpoint detects a removed suffix or a recomputed chain | Suffix-drop and full-rechain tests that pass without a checkpoint and fail with one |
+| A witness file is never extended over a rolled-back or rewritten history | Deleted-event and replaced-issuer tests that leave the witness file unchanged |
+| Checkpoints, reconciliations and operation receipts cannot stand in for each other | Cross-type substitution tests |
 
 ## Explicit non-claims
 
@@ -43,7 +46,7 @@ The browser is the local human operator console. It can issue the scripted root 
 - The fixture service has no production side effects. There is no claim of exactly-once execution against an arbitrary external API.
 - No LLM attack-resistance or universal prompt-injection prevention claim is made. The fixture explicitly issues malicious requests to test the gateway, and a live model's choice to follow or ignore the planted log line is not measured or relied on.
 - There is no data-flow tracking or quarantine of downstream outputs from a compromised worker.
-- Hash-linked events without a trusted checkpoint are not a tamper-proof audit ledger.
+- Hash-linked events without a witnessed checkpoint are not a tamper-proof audit ledger. With one, only the prefix it covers is anchored, and only as well as the witness copy is kept out of the database owner's reach. The issuer key holder can sign a checkpoint of any history it likes.
 - There is no public hosting, user login, per-tenant isolation, rate limiter, retention policy, or production denial-of-service protection.
 - The private key is stored locally in a file. POSIX mode is restricted at creation; on Windows, protection relies on inherited user-directory ACLs. This is not HSM-backed key storage.
 

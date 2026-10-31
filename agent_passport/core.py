@@ -544,3 +544,23 @@ class Passport:
 
     def evidence(self, run_id):
         return self.snapshot(run_id, include_receipts=True)
+
+    def checkpoint(self, run_id):
+        """Sign the size and head hash of a run's event chain.
+
+        A checkpoint only anchors anything once a copy is held where the database owner cannot
+        rewrite it. It attests what the issuer's log contained when signed, not that the log
+        is truthful, and it says nothing about events appended afterwards.
+        """
+        db = self.connect()
+        try:
+            db.execute("BEGIN")
+            if not db.execute("SELECT 1 FROM runs WHERE id=?", (run_id,)).fetchone():
+                raise Denied("RUN_UNKNOWN", "Unknown run.")
+            size = db.execute("SELECT COUNT(*) FROM events WHERE run_id=?", (run_id,)).fetchone()[0]
+            head = db.execute("SELECT hash FROM events WHERE run_id=? ORDER BY seq DESC LIMIT 1", (run_id,)).fetchone()
+        finally:
+            db.close()
+        body = {"type": "checkpoint", "run_id": run_id, "size": size, "head": head[0] if head else "0" * 64,
+                "policy": POLICY, "time": self.clock()}
+        return {"body": body, "signature": b64(self.key.sign(canonical(body)))}

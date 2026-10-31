@@ -94,7 +94,16 @@ For offline evidence verification, obtain the issuer public key through a truste
 python scripts/verify_evidence.py artifacts/scenario-evidence.json --public-key-file artifacts/issuer-public-key.txt
 ```
 
-Pin the public key independently before accepting evidence from someone else. A key embedded in the same untrusted export is not a trust anchor. Receipt signatures establish what the issuer signed, not whether an external executor reported reality truthfully. The event hash chain is not externally anchored and cannot prove completeness or resist a writer who recomputes the whole chain.
+Pin the public key independently before accepting evidence from someone else. A key embedded in the same untrusted export is not a trust anchor. Receipt signatures establish what the issuer signed, not whether an external executor reported reality truthfully.
+
+On its own, the event hash chain cannot prove completeness or resist a writer who recomputes the whole chain. To anchor it, sign a checkpoint and keep the witness file somewhere the database owner cannot rewrite:
+
+```powershell
+python scripts/checkpoint.py --witness artifacts/witness.jsonl
+python scripts/verify_evidence.py EVIDENCE.json --public-key-file KEY.txt --checkpoints artifacts/witness.jsonl
+```
+
+The verifier then rejects a removed suffix or a rewritten prefix, and reports how many events after the latest checkpoint remain unanchored. A checkpoint shows what the issuer's log contained when it was witnessed, not that the issuer was honest. See [Checkpoints](docs/architecture.md#checkpoints).
 
 ## 1Password integration
 
@@ -145,7 +154,7 @@ agent_passport/server.py   Local console and token-plus-proof agent API
 agent_passport/mcp_server.py  MCP adapter for a live model; holds passports, never returns them
 web/                      Responsive console; plain JS, CSS, no external assets
 tests/                    Security invariants and HTTP integration tests
-scripts/                  Benchmarks, scenario runner, offline verifier, operator reconciliation
+scripts/                  Benchmarks, scenario runner, offline verifier, operator reconciliation, checkpoints
 docs/                     Design, threat model, demo script, integration setup
 ```
 
@@ -153,4 +162,4 @@ docs/                     Design, threat model, demo script, integration setup
 
 The current model counts fixed-cost operations, not dollars or actual provider usage. It shares a root pool rather than allocating child sub-budgets. Holder binding stops a copied token from being used, but not a compromised holder: a process that can read the holder's memory can take its key. Revocation linearizes at the database transaction; already dispatched work may still finish. Unknown or crash-interrupted operations deliberately retain capacity until a local operator reconciles them with a signed, recorded decision (`python scripts/reconcile.py`). Nothing settles them automatically, and a reconciliation receipt attests the operator's statement, not the upstream effect.
 
-[A simulated experiment](docs/revocation-experiment.md) measures what a caching edge would cost under network partitions. A fail-open cache let a revoked branch keep working for the whole partition. Bounded staleness with budget leases capped that delay and never overspent, but the cap depends on the edge's clock. The shipped gateway still has no cache. Other extensions include per-agent signing keys, data-dependency quarantine, external service idempotency, trusted resource-version approvals, and independently anchored audit checkpoints. None is represented as implemented here.
+[A simulated experiment](docs/revocation-experiment.md) measures what a caching edge would cost under network partitions. A fail-open cache let a revoked branch keep working for the whole partition. Bounded staleness with budget leases capped that delay and never overspent, but the cap depends on the edge's clock. The shipped gateway still has no cache. Other extensions include per-agent signing keys, data-dependency quarantine, external service idempotency, trusted resource-version approvals, and checkpoints published to an independent transparency log. None is represented as implemented here; the shipped checkpoints rely on the operator keeping a witness copy.

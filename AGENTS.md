@@ -24,7 +24,7 @@ Use the repository's `.venv` when available. No frontend build is required. Relo
 - A key-bound passport needs a fresh, single-use holder proof on every agent request. Delegation cannot drop or redirect the binding. Holder private keys stay in process memory and never reach disk, logs, or tool output.
 - `.state/`, credentials, bearer tokens, and private keys must stay out of Git and user-facing output.
 - Keep live 1Password verification separate from mocked CLI tests. Do not claim it ran unless it did.
-- Receipts attest issuer statements. Unanchored event hashes do not prove completeness.
+- Receipts attest issuer statements. Unanchored event hashes do not prove completeness. A checkpoint anchors only the prefix it covers, only through a witness copy outside the database owner's reach, and never comes from the evidence it checks. Never append a checkpoint over a history that no longer matches the witness.
 - The MCP adapter must never return a passport token, for the live agent or any worker, in a tool result. Live-agent tokens go to `.state/live-agent.token`, never to the browser.
 - Do not describe a live-model session as recorded unless one was actually run with a model; scripted MCP clients are not models. Recorded sessions live in `docs/live-runs/` with their signed evidence.
 

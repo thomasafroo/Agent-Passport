@@ -110,3 +110,23 @@ This validates credential separation and retrieval, not a production service int
 Each event includes the hash of the previous event in its run. Receipts sign the operation ID, grant, ancestor IDs, request digest, resource/action, outcome, result digest, cost, policy version, and time using Ed25519. The offline verifier requires a caller-supplied pinned public key. Event and receipt exports use a consistent read transaction.
 
 Hash linking detects accidental modification and reordering but, without external anchoring, does not stop the database owner rewriting the chain or removing a suffix. Signatures resist receipt alteration without the issuer key; they do not make the issuer honest or prove an external effect.
+
+## Checkpoints
+
+A checkpoint is an issuer-signed statement of a run's event count and the hash of its last event at that moment:
+
+```text
+{"type": "checkpoint", "run_id": ..., "size": 14, "head": "<hash of event 14>", "policy": ..., "time": ...}
+```
+
+The operator signs one with `python scripts/checkpoint.py`, or `POST /api/checkpoint` from the console session, and appends it to a witness file. The witness file is the anchor, so it has to live where the database owner cannot rewrite it: another machine, a colleague's inbox, a printout of the head hash. The default `artifacts/witness.jsonl` is beside the state directory for convenience and protects nothing until it is copied elsewhere.
+
+Given the pinned issuer key and witnessed checkpoints, `verify_evidence.py --checkpoints` requires that each checkpoint is signed by that key, belongs to the run, and that the exported chain's hash at position `size` equals `head`. This detects:
+
+- a removed suffix, because the export has fewer events than a checkpoint covers;
+- a chain rewritten and fully recomputed by someone without the issuer key, because the head at the checkpointed position changes;
+- a checkpoint from another issuer or another run.
+
+Before appending, the checkpoint script verifies the current log against every checkpoint the witness file already holds for that run. A rolled-back or rewritten history is refused, and the witness file is left unchanged.
+
+A checkpoint covers only the events before it. Anything appended afterwards is reported as unanchored and can still be rewritten until the next checkpoint. The issuer key holder can sign a checkpoint of any history, so a checkpoint shows what the issuer's log contained when it was witnessed, not that the log is truthful or complete with respect to what agents actually did. The chain is linear, so checking a checkpoint needs the full prefix; there are no Merkle inclusion proofs.
