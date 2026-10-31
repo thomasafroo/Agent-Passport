@@ -2,7 +2,6 @@
 import copy
 import json
 import threading
-import time
 
 from fastapi.testclient import TestClient
 import pytest
@@ -188,13 +187,19 @@ def test_concurrent_deprovision_and_reservations_are_linearized(tmp_path):
     root = engine.create_run(budget=1000, owner=dana["id"])
     workers = [child(engine, root, f"Worker {i}") for i in range(8)]
     barrier, lock, admitted, denials = threading.Barrier(len(workers) + 1), threading.Lock(), [], []
+    progressed = threading.Event()
 
     def reserve(worker, index):
         barrier.wait()
-        for n in range(120):
+        # Keep reserving until denied, so every worker is still running when the owner is deprovisioned,
+        # however slow the machine. The cap only stops a broken implementation from looping forever.
+        for n in range(1000):
             try:
                 op = engine.reserve(worker["token"], *LOG_READ, f"{index}-{n}")
-                with lock: admitted.append(op["id"])
+                with lock:
+                    admitted.append(op["id"])
+                    if len(admitted) >= 2 * len(workers):
+                        progressed.set()
             except Denied as e:
                 with lock: denials.append(e.rule)
                 return
@@ -202,7 +207,7 @@ def test_concurrent_deprovision_and_reservations_are_linearized(tmp_path):
     threads = [threading.Thread(target=reserve, args=(w, i)) for i, w in enumerate(workers)]
     for t in threads: t.start()
     barrier.wait()
-    time.sleep(0.02)
+    assert progressed.wait(timeout=60)
     engine.deprovision_owner(dana["id"])
     for t in threads: t.join()
     assert denials == ["OWNER_DEPROVISIONED"] * len(workers)
