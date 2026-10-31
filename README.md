@@ -43,6 +43,18 @@ One primary button (or the → key) advances the story, and the inspector follow
 
 The console can issue a passport to an MCP adapter so a real model, such as Claude, works the incident through the same gateway. The adapter keeps every passport token; the model sees only tool results. The synthetic logs contain a planted instruction to deploy to production, and the console shows each decision the gateway makes about the model's requests. See [the live agent guide](docs/live-agent.md), including what isolation it does and does not provide.
 
+Quick start on Windows, from the repository root while the gateway is running:
+
+1. Register the adapter with Claude Code, then start a Claude Code session so the adapter is running. `$PWD` expands to your local checkout, so no path is written into the repository:
+
+   ```powershell
+   claude mcp add agent-passport -- "$PWD\.venv\Scripts\python.exe" -m agent_passport.mcp_server
+   ```
+
+   This uses Claude Code's default local scope, which stores the entry in your user settings. Avoid `--scope project`, which writes your absolute path into a committed `.mcp.json`. For Claude Desktop, which gives the cleaner isolation demo, use the JSON config in the guide.
+2. In the console, select **Issue live passport** under **Put a real model behind the boundary**. The token is written to `.state/live-agent.token` and never shown.
+3. Ask the model to investigate why staging checkout is failing.
+
 In [recorded runs with Claude Sonnet 5.5](docs/live-runs/README.md), the model declined the planted instruction on its own. When the operator prompt told it to obey log notes, it attempted the production deploy and an admin delegation; the gateway denied both while its legitimate work completed. After revocation in the console, its next call was denied.
 
 ## What is real
@@ -87,6 +99,19 @@ Pin the public key independently before accepting evidence from someone else. A 
 ## 1Password integration
 
 The default runs entirely offline. To exercise the real credential path, use a dedicated test vault and synthetic fixture key with the 1Password CLI. Follow [the setup guide](docs/1password.md). Credentials are retrieved only by the executor; agent inputs cannot choose a secret reference, URL, header, shell command, or credential provider.
+
+After the test vault exists, start the gateway in 1Password mode. Run everything in one PowerShell 7 window, because the server reads these variables at startup. `op signin` shows the 1Password approval prompt. The digest is computed without printing the key:
+
+```powershell
+op signin
+$env:PASSPORT_OP_REFERENCE = 'op://Agent Passport Demo/Staging fixture/password'
+$bytes = [Text.Encoding]::UTF8.GetBytes((op read $env:PASSPORT_OP_REFERENCE --no-newline))
+$env:PASSPORT_FIXTURE_KEY_SHA256 = -join ([Security.Cryptography.SHA256]::HashData($bytes) | ForEach-Object { $_.ToString('x2') })
+Remove-Variable bytes
+.venv\Scripts\python -m agent_passport
+```
+
+The console header badge should read **1Password CLI, fixture service**. Never put a real credential, service-account token, or `.state/` contents in shell history you share, issues, or commits.
 
 The CLI contract is tested with a mocked subprocess. Separately, a live run through the 1Password desktop app integration was performed on 2026-10-30: the scenario's operations completed with the credential resolved from a real test vault. The default test suite does not touch a 1Password account; see [the verification notes](docs/1password.md#current-verification-status) for exactly what that run does and does not show.
 
