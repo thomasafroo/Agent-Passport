@@ -31,7 +31,7 @@ The 100-agent protected experiment took 1,986.91 ms overall. This includes conte
 - A concurrent first-start check exposed a SQLite journal-mode race. Startup now retries the journal-mode transition within a bounded interval; a 12-instance regression test passes.
 - Browser export verification exposed a Windows text-encoding issue. The verifier now reads UTF-8 explicitly, export preserves the server's bytes, and a non-ASCII export regression test passes.
 - A live 1Password account lookup was performed on 2026-10-30 through the desktop app integration (CLI 2.41.1): three scenario operations completed in `1password-cli` mode against a synthetic key in a dedicated test vault. See [1password.md](1password.md#current-verification-status). Service-account authentication has not been exercised. Mocked CLI behavior and secret-safe failure paths are tested separately.
-- GitHub's Windows/Linux matrix is configured but has not run remotely.
+- GitHub Actions ran the Windows/Linux matrix (Python 3.11 and 3.13) remotely. The first run on 2026-10-31 exposed an intermittent verifier bug: issuer keys beginning with `-` were misread as a command-line flag. It was fixed with a regression test, and all four jobs passed on `main` after the merge.
 
 Reproduce with:
 
