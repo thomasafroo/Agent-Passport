@@ -266,8 +266,10 @@ class Passport:
             if not isinstance(token, str) or len(token) > 12000:
                 raise ValueError()
             payload, signature = token.split(".")
-            raw = unb64(payload)
-            self.key.public_key().verify(unb64(signature), raw)
+            raw, signed = unb64(payload), unb64(signature)
+            if b64(raw) != payload or b64(signed) != signature:
+                raise ValueError()
+            self.key.public_key().verify(signed, raw)
             claims = json.loads(raw)
             g = db.execute("SELECT * FROM grants WHERE id=?", (claims["id"],)).fetchone()
             if g is None or canonical(self._claims(g)) != raw:
@@ -286,8 +288,10 @@ class Passport:
             if not isinstance(proof, str) or len(proof) > 2000:
                 raise ValueError()
             payload, signature = proof.split(".")
-            raw = unb64(payload)
-            Ed25519PublicKey.from_public_bytes(unb64(g["holder_key"])).verify(unb64(signature), raw)
+            raw, signed = unb64(payload), unb64(signature)
+            if b64(raw) != payload or b64(signed) != signature:
+                raise ValueError()
+            Ed25519PublicKey.from_public_bytes(unb64(g["holder_key"])).verify(signed, raw)
             body = json.loads(raw)
             if not isinstance(body, dict) or set(body) != {"ath", "op", "req", "iat", "jti"}:
                 raise ValueError()

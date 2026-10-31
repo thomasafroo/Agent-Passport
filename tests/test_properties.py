@@ -483,19 +483,9 @@ def decoded(value):
 def test_mutated_tokens_never_authenticate_different_content(engine, data):
     root = engine.create_run()
     mutated = data.draw(mutations(root["token"]))
-    try:
-        result = engine.inspect(mutated)
-    except Denied as error:
-        assert error.rule == "IDENTITY_INVALID"
-        return
-    # Only a different spelling of the very same signed bytes can get here (see the xfail below).
-    assert decoded(mutated) == decoded(root["token"])
-    assert result["grant"]["id"] == root["grant"]["id"]
+    assert denial(lambda: engine.inspect(mutated)) == "IDENTITY_INVALID"
 
 
-@pytest.mark.xfail(strict=True, reason="GAP: unb64 accepts non-canonical base64 (unused trailing bits, extra '=' "
-                   "padding, '+'/'/' alphabet), so several distinct token strings authenticate the same grant. "
-                   "No authority is gained, but any future token-string denylist or log correlation would be bypassable.")
 def test_only_the_canonical_token_spelling_authenticates(engine):
     root = engine.create_run()
     payload, signature = root["token"].split(".")
@@ -506,6 +496,19 @@ def test_only_the_canonical_token_spelling_authenticates(engine):
             variants.append(payload + "." + spelled)
     for variant in variants:
         assert denial(lambda: engine.inspect(variant)) == "IDENTITY_INVALID", variant
+
+
+def test_only_canonical_holder_proofs_authenticate_without_consuming_invalid_nonces(engine, bound):
+    proof = bound["holder"].proof(bound["token"], "inspect", {})
+    payload, signature = proof.split(".")
+    variants = [payload + "." + signature + "=", payload + "=." + signature,
+                payload + "." + signature + "\n", payload + ".!" + signature]
+    variants.extend(payload + "." + signature[:-1] + c for c in B64
+                    if c != signature[-1] and unb64(signature[:-1] + c) == unb64(signature))
+    for variant in variants:
+        assert denial(lambda: engine.inspect(bound["token"], variant)) == "PROOF_INVALID"
+    assert denial(lambda: engine.inspect(bound["token"], proof)) is None
+    assert denial(lambda: engine.inspect(bound["token"], proof)) == "PROOF_REPLAYED"
 
 
 json_scalar = st.one_of(st.none(), st.booleans(), st.integers(), st.floats(allow_nan=True), st.text(max_size=20))
@@ -560,14 +563,8 @@ def test_arbitrary_holder_proofs_are_refused(engine, bound, proof):
 def test_mutated_holder_proofs_are_refused_and_never_replay(engine, bound, data):
     proof = bound["holder"].proof(bound["token"], "inspect", {})
     mutated = data.draw(mutations(proof))
-    rule = denial(lambda: engine.inspect(bound["token"], mutated))
-    if rule is None:
-        # A respelling of the same signed bytes carries the same nonce, so the original now replays.
-        assert decoded(mutated) == decoded(proof)
-        assert denial(lambda: engine.inspect(bound["token"], proof)) == "PROOF_REPLAYED"
-    else:
-        assert rule == "PROOF_INVALID"
-        assert denial(lambda: engine.inspect(bound["token"], proof)) is None
+    assert denial(lambda: engine.inspect(bound["token"], mutated)) == "PROOF_INVALID"
+    assert denial(lambda: engine.inspect(bound["token"], proof)) is None
 
 
 @settings(max_examples=scaled(150))
