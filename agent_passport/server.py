@@ -165,6 +165,13 @@ def create_app(directory=None):
         with demo.lock:
             return {**passport.evidence(demo.run_id), "metrics": demo.metrics, "credential_mode": executor.provider.mode}
 
+    @app.post("/api/checkpoint")
+    def checkpoint(request: Request):
+        # Operator surface. The checkpoint anchors nothing until a copy leaves this machine's state.
+        console(request)
+        with demo.lock:
+            return {"checkpoint": passport.checkpoint(demo.run_id)}
+
     @app.post("/api/agent/delegate")
     def delegate(body: Delegation, request: Request):
         return passport.delegate(bearer(request), body.subject, [s.model_dump() for s in body.scopes], body.expires,
