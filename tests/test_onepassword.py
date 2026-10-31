@@ -25,7 +25,8 @@ LEAK = "LEAKED-SDK-DETAIL-0123456789"
 TOKEN = "ops_fake-service-account-token-for-tests"
 REFS = {("staging/checkout", "logs.read"): "op://Test Vault/Logs/credential",
         ("repo/checkout", "code.read"): "op://Test Vault/Code/credential",
-        ("repo/checkout", "patch.propose"): "op://Test Vault/Patch/credential"}
+        ("repo/checkout", "patch.propose"): "op://Test Vault/Patch/credential",
+        ("staging/checkout", "config.write"): "op://Test Vault/Config/credential"}
 VARS = ("PASSPORT_OP_REFERENCE", "PASSPORT_OP_REFERENCES", "PASSPORT_OP_PROVIDER", "PASSPORT_ISSUER_KEY_REFERENCE",
         "PASSPORT_FIXTURE_KEY_SHA256", "OP_SERVICE_ACCOUNT_TOKEN")
 FIXED = {"1Password credential resolution failed.", "1Password credential resolution timed out.",

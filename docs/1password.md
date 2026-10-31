@@ -92,7 +92,8 @@ By default one reference (`PASSPORT_OP_REFERENCE`) serves every operation. Inste
 {
   "staging/checkout logs.read":    {"reference": "op://Agent Passport Demo/Log reader/password",   "sha256": "<digest>"},
   "repo/checkout code.read":       {"reference": "op://Agent Passport Demo/Code reader/password",  "sha256": "<digest>"},
-  "repo/checkout patch.propose":   {"reference": "op://Agent Passport Demo/Patch writer/password", "sha256": "<digest>"}
+  "repo/checkout patch.propose":   {"reference": "op://Agent Passport Demo/Patch writer/password", "sha256": "<digest>"},
+  "staging/checkout config.write": {"reference": "op://Agent Passport Demo/Config writer/password", "sha256": "<digest>"}
 }
 ```
 

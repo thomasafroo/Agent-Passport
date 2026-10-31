@@ -34,7 +34,7 @@ The browser is the local human operator console. It can issue the scripted root 
 | Failed or premature lookups change nothing | Unsupported, credential-failure, rejected-credential and in-flight tests check the unit is retained and no fence is written |
 | A witnessed checkpoint detects a removed suffix or a recomputed chain | Suffix-drop and full-rechain tests that pass without a checkpoint and fail with one |
 | A witness file is never extended over a rolled-back or rewritten history | Deleted-event and replaced-issuer tests that leave the witness file unchanged |
-| Checkpoints, reconciliations and operation receipts cannot stand in for each other | Cross-type substitution tests |
+| Checkpoints, reconciliations, approvals and operation receipts cannot stand in for each other | Cross-type substitution tests |
 | Hostile agent input is refused, never a server error | Property tests of the agent HTTP API and of token and proof parsing; `scripts/fuzz.py` for longer runs |
 | The verifier rejects every change to hashed or signed content | Single-field mutation property over events, receipts, reconciliations and checkpoints; unsigned fields it does not check are listed in `docs/security-testing.md` |
 | 1Password SDK failures never reveal SDK exception text, the token, or the secret | Mocked SDK failures (auth, missing item, rate limit, timeout, empty and non-text values) carrying a fake secret and token; scans of the exception, result, events, receipts, `/api/evidence`, `/health`, and logs; no chained exception |
@@ -43,6 +43,14 @@ The browser is the local human operator console. It can issue the scripted root 
 | Each operation resolves only its own mapped reference | Recording backend sees exactly the dispatched pair's reference; a denied pair resolves nothing; one pair's key fails another pair's verifier |
 | A malformed reference map stops startup | Missing, unknown, mixed, duplicated, non-`op://`, multi-line, and unreadable map tests; server startup test |
 | An issuer key from 1Password fails closed and never reaches disk | Unresolvable and wrong-length/encoding keys stop startup without creating a key file; state-directory scan for the raw and encoded key after signing |
+| An approval-required operation never dispatches without an operator approval | Pending-reserve test: no dispatch, no service call, retries stay pending |
+| Only the operator approves; agents, bearer passports and timers cannot | Bearer, passport-as-console-header and missing-session rejection of approval routes; no agent-API route; lapse tests show time only withdraws |
+| An approval runs its operation at most once, and only that operation | Approve-then-retry, concurrent retry, concurrent approve/deny and copied-approval tests |
+| Revocation after approval still stops dispatch | Revoke-after-approval tests through the agent retry and through direct dispatch |
+| Denied, lapsed and revoked waiting operations return their unit exactly once, and never run | Deny, approval-lapse, request-lapse and revocation tests with service-call counts and pool totals |
+| Approval retries still need the holder key | Missing and forged proof on the post-approval retry |
+| Approvals are signed and verifiable offline | Approval tamper, foreign-run and dropped-approval verifier tests |
+| A model sees an approval wait without any token | MCP output scan across pending, retried, approved and denied operations |
 
 ## Explicit non-claims
 
@@ -54,6 +62,7 @@ The browser is the local human operator console. It can issue the scripted root 
 - Already dispatched operations can finish after revocation. Effects cannot be undone.
 - No distributed-cache, network-partition, or clock-skew bound has been established. The server wall clock is trusted.
 - No automatic recovery of crash-stranded reservations is implemented. Capacity stays held until an operator reconciles it, by stating the outcome or by asking the fixture upstream's effect record. A reconciliation receipt records the operator's statement or the upstream's report; it is not independent evidence of the effect, and a wrong decision misstates the budget by one unit. Lookup soundness rests on the fixture's atomic effect recording and fencing, which a real upstream would have to provide.
+- An approval records that a named local operator approved one exact operation; it does not authenticate that person, and anyone with loopback console access can approve. The operator sees the operation's agent, resource and action, not its downstream consequences, and an approval is only as good as that judgement. The approval-required list is a fixed local policy, not a risk engine.
 - The fixture service has no production side effects. There is no claim of exactly-once execution against an arbitrary external API.
 - No LLM attack-resistance or universal prompt-injection prevention claim is made. The fixture explicitly issues malicious requests to test the gateway, and a live model's choice to follow or ignore the planted log line is not measured or relied on.
 - There is no data-flow tracking or quarantine of downstream outputs from a compromised worker.

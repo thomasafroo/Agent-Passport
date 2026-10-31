@@ -38,6 +38,12 @@ class Reconciliation(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+class ApprovalDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: str = Field(min_length=1, max_length=10)
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class RequestSizeLimit:
     """Bound the actual body, including chunked requests without Content-Length."""
     def __init__(self, app):
@@ -132,6 +138,8 @@ def create_app(directory=None):
             return demo.step()
         if action == "fork":
             return demo.fork()
+        if action == "config":
+            return demo.request_config_change()
         raise HTTPException(404)
 
     @app.post("/api/grants/{gid}/revoke")
@@ -168,6 +176,19 @@ def create_app(directory=None):
         if oid not in {o["id"] for o in passport.unresolved(demo.run_id)}:
             raise HTTPException(404)
         return executor.resolve(oid)
+
+    @app.get("/api/approvals")
+    def approvals(request: Request):
+        console(request)
+        return {"approvals": passport.pending_approvals(demo.run_id)}
+
+    @app.post("/api/approvals/{oid}")
+    def decide(oid: str, body: ApprovalDecision, request: Request):
+        # Operator decision only. No agent-API route, bearer passport or timer can approve.
+        console(request)
+        if oid not in {o["id"] for o in passport.pending_approvals(demo.run_id) if o["state"] == "awaiting_approval"}:
+            raise HTTPException(404)
+        return passport.decide_approval(oid, body.decision, body.reason)
 
     @app.get("/api/evidence")
     def evidence(request: Request):

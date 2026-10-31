@@ -179,7 +179,8 @@ class SharedBudgetMachine(RuleBasedStateMachine):
     def start(self, budget):
         self.directory = tempfile.mkdtemp(prefix="passport-machine-")
         self.now = 1_000_000.0
-        self.engine = Passport(self.directory, clock=lambda: self.now)
+        # Approval gating is modelled separately; here every catalog pair dispatches directly.
+        self.engine = Passport(self.directory, clock=lambda: self.now, approval_required=())
         root = self.engine.create_run(budget=budget, ttl=3600)
         self.run_id, self.budget, self.expires = root["run_id"], budget, root["grant"]["expires"]
         self.agents = [{"token": root["token"], "id": root["grant"]["id"], "parent": None, "pairs": set(CATALOG), "depth": 0}]
