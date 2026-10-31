@@ -183,8 +183,9 @@ def test_cli_witnesses_and_verifier_uses_the_witness_file(tmp_path, capsys):
 
 def test_only_the_console_can_request_a_checkpoint(tmp_path, monkeypatch):
     monkeypatch.delenv("PASSPORT_OP_REFERENCE", raising=False)
-    client = TestClient(create_app(tmp_path))
-    coordinator = client.app.state.demo.agents["Coordinator"]
+    app = create_app(tmp_path)
+    client = TestClient(app)
+    coordinator = app.state.demo.agents["Coordinator"]
     assert client.post("/api/checkpoint", headers={"Authorization": f"Bearer {coordinator['token']}"}).status_code == 403
     console = {"x-passport-console": client.get("/api/session").json()["console_token"]}
     checkpoint = client.post("/api/checkpoint", headers=console).json()["checkpoint"]

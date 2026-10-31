@@ -1,6 +1,5 @@
 import base64
 import copy
-import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -10,7 +9,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, PublicFormat
 import pytest
 
-from agent_passport.core import Passport, canonical
+from agent_passport.core import Passport
 from agent_passport.broker import Executor
 from scripts.verify_evidence import verify
 

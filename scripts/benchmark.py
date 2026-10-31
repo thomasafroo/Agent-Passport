@@ -50,7 +50,7 @@ def main():
             bound_latencies.append((time.perf_counter_ns() - start) / 1e6)
             engine.dispatch(op["id"]); engine.settle(op["id"], "completed", {})
         revoke_latencies = []
-        for i in range(30):
+        for _ in range(30):
             branch = engine.delegate(latency_root["token"], "Revocation probe", LOGS, latency_root["grant"]["expires"])
             start = time.perf_counter_ns(); engine.revoke(branch["grant"]["id"])
             try: engine.reserve(branch["token"], "staging/checkout", "logs.read", "after-revoke")

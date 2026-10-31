@@ -11,7 +11,7 @@ dependencies = ["fastapi==0.137.2", "uvicorn==0.41.0", "cryptography==49.0.0"]
 
 [project.optional-dependencies]
 mcp = ["mcp==2.3.0"]
-dev = ["pytest==9.0.3", "httpx==0.28.1", "mcp==2.3.0"]
+dev = ["pytest==9.0.3", "httpx==0.28.1", "mcp==2.3.0", "hypothesis==6.170.14", "ruff==0.17.3", "pyright==1.1.414"]
 
 [tool.setuptools.packages.find]
 include = ["agent_passport*"]
@@ -19,3 +19,28 @@ include = ["agent_passport*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 200
+extend-exclude = [".state", "artifacts", "docs"]
+
+[tool.ruff.lint]
+# Conservative: syntax errors, undefined names, unused imports and likely-bug patterns.
+# Compact one-line statements are the house style, so E701/E702 are not enforced.
+select = ["E4", "E7", "E9", "F", "B"]
+ignore = ["E701", "E702"]
+
+[tool.ruff.lint.per-file-ignores]
+# Scripts put the repository root on sys.path before importing the package.
+"scripts/*" = ["E402"]
+# Tests pass loop-local lambdas to assert_denied, which calls them before the loop advances.
+"tests/*" = ["B023"]
+
+[tool.pyright]
+include = ["agent_passport", "scripts", "tests"]
+typeCheckingMode = "basic"
+pythonVersion = "3.11"
+# The engine binds `result` in a try block and raises a recorded denial before returning it;
+# pyright cannot follow that flow. Keep the finding visible as a warning instead of failing.
+reportPossiblyUnboundVariable = "warning"
