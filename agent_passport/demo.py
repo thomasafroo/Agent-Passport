@@ -5,7 +5,7 @@ import threading
 import time
 import uuid
 
-from .core import Denied, CATALOG
+from .core import Denied, CATALOG, Holder, delegate_fields, execute_fields
 
 LIVE_SUBJECT = "Claude (live)"
 
@@ -25,6 +25,26 @@ class Demo:
     def live_token_path(self):
         return self.passport.directory / "live-agent.token"
 
+    @property
+    def live_key_path(self):
+        # Written by the MCP adapter at startup. Public half only; the private key stays in its memory.
+        return self.passport.directory / "live-agent.pub"
+
+    def _delegate(self, parent, name, scopes, holder_key):
+        """Delegate as a scripted agent: the parent's holder key signs the request."""
+        fields = delegate_fields(name, scopes, parent["grant"]["expires"], holder_key)
+        proof = parent["holder"].proof(parent["token"], "delegate", fields)
+        return self.passport.delegate(parent["token"], name, scopes, parent["grant"]["expires"], holder_key, proof)
+
+    def _reserve(self, name, resource, action, key):
+        agent = self.agents[name]
+        proof = agent["holder"].proof(agent["token"], "execute", execute_fields(resource, action, key))
+        return self.passport.reserve(agent["token"], resource, action, key, proof)
+
+    def _execute(self, agent, resource, action, key):
+        proof = agent["holder"].proof(agent["token"], "execute", execute_fields(resource, action, key))
+        return self.executor.execute(agent["token"], resource, action, key, proof)
+
     def _retire_live(self):
         # A reset must not leave a live agent acting in a run the console no longer shows.
         live = getattr(self, "live", None)
@@ -38,9 +58,12 @@ class Demo:
         with self.lock:
             if self.live and self.live["grant"]["id"] in {g["id"] for g in self.passport.snapshot(self.run_id)["grants"] if g["state"] == "active"}:
                 raise Denied("LIVE_AGENT_ACTIVE", "A live agent passport is already active in this run. Revoke it or reset first.")
-            parent = self.agents["Coordinator"]
-            self.live = self.passport.delegate(parent["token"], LIVE_SUBJECT,
-                                               [{"resource": r, "action": a} for r, a in sorted(CATALOG)], parent["grant"]["expires"])
+            try:
+                holder_key = self.live_key_path.read_text(encoding="ascii").strip()
+            except OSError:
+                raise Denied("ADAPTER_NOT_CONNECTED", "Start the MCP adapter first. It registers its holder key when it starts, and the live passport is bound to that key.") from None
+            self.live = self._delegate(self.agents["Coordinator"], LIVE_SUBJECT,
+                                       [{"resource": r, "action": a} for r, a in sorted(CATALOG)], holder_key)
             path = self.live_token_path
             temporary = path.with_suffix(".tmp")
             temporary.unlink(missing_ok=True)
@@ -54,7 +77,8 @@ class Demo:
     def reset(self):
         with self.lock:
             self._retire_live()
-            self.root = self.passport.create_run()
+            holder = Holder()
+            self.root = {**self.passport.create_run(holder_key=holder.public_key), "holder": holder}
             self.run_id = self.root["run_id"]
             self.agents = {"Coordinator": self.root}
             self.phase = "ready"
@@ -70,14 +94,14 @@ class Demo:
                     "live_grant": self.live["grant"]["id"] if self.live else None}
 
     def _child(self, parent, name, scopes):
-        p = self.agents[parent]
-        child = self.passport.delegate(p["token"], name, scopes, p["grant"]["expires"])
+        holder = Holder()
+        child = {**self._delegate(self.agents[parent], name, scopes, holder.public_key), "holder": holder}
         self.agents[name] = child
         return child
 
     def _call(self, name, resource="staging/checkout", action="logs.read", key=None):
         try:
-            return self.executor.execute(self.agents[name]["token"], resource, action, key or uuid.uuid4().hex)
+            return self._execute(self.agents[name], resource, action, key or uuid.uuid4().hex)
         except Denied as e:
             return e.as_dict()
 
@@ -100,12 +124,18 @@ class Demo:
                     self._child("Log reader", "Unauthorized deployer", [{"resource": "production/checkout", "action": "deploy.execute"}])
                 except Denied:
                     pass
+                # The injected output also exfiltrates the log reader's token. Replayed from a process
+                # without the holder key, the token alone authorizes nothing.
+                try:
+                    self.executor.execute(self.agents["Log reader"]["token"], "staging/checkout", "logs.read", uuid.uuid4().hex)
+                except Denied:
+                    pass
                 self.phase = "attacked"
-                self.message = "The compromised log reader attempted a production deployment and broader delegation. Both were denied."
+                self.message = "The compromised log reader attempted a production deployment and broader delegation, and its stolen token was replayed without its holder key. All three were denied."
             elif self.phase == "attacked":
                 queued = None
                 try:
-                    queued = self.passport.reserve(self.agents["Trace analyst"]["token"], "staging/checkout", "logs.read", "queued-before-revocation")
+                    queued = self._reserve("Trace analyst", "staging/checkout", "logs.read", "queued-before-revocation")
                 except Denied:
                     # The operator may already have revoked this branch in the inspector.
                     pass
@@ -139,7 +169,7 @@ class Demo:
 
             def call(worker):
                 try:
-                    return self.executor.execute(worker["token"], "repo/checkout", "code.read", "fork-operation")
+                    return self._execute(worker, "repo/checkout", "code.read", "fork-operation")
                 except Denied as e:
                     return e.as_dict()
 

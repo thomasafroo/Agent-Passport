@@ -84,7 +84,7 @@ function humanRule(rule) { const s = rule.toLowerCase().replace(/_/g, " "); retu
 const STEP_COPY = [
   { label: "Ready", button: "Start investigation", hint: () => "The coordinator holds one passport and a 24-unit budget. Start to issue four narrower passports." },
   { label: "Authority delegated", button: "Inject malicious output", hint: () => "Select any worker to inspect its passport. Each holds a strict subset of its parent's permissions and the same expiry or earlier." },
-  { label: "Attack blocked", button: "Contain branch", alert: true, hint: () => "The model never decided this: the gateway checked the exact resource/action pair. Next, revoke the compromised branch." },
+  { label: "Attack blocked", button: "Contain branch", alert: true, hint: () => "The model never decided this: the gateway checked the exact resource/action pair, and the stolen token failed without its holder key. Next, revoke the compromised branch." },
   { label: "Branch contained", button: "Complete investigation", hint: () => "Revocation reached the trace analyst through its ancestor chain, with no cache to expire. The other branches are untouched." },
   { label: "Investigation complete", button: "Fork 32 workers", hint: () => `Next, 32 workers race for the ${available()} units left. The pool should fill exactly to its limit and no further.` },
   { label: "Fork race complete", button: "Download evidence", hint: () => "The evidence file holds every decision and signed receipt. Verify it offline, or reset to replay." },
@@ -195,7 +195,8 @@ function renderIncident() {
   response.append(el("h3", "", "What the gateway did"));
   const attempts = state.events.filter(e => e.grant_id === injected.grant_id && e.kind === "denied" && e.seq > injected.seq);
   const revoked = state.events.find(e => e.kind === "revoked" && e.grant_id === injected.grant_id);
-  const rows = attempts.map(e => ({ event: e, code: e.action ? `${e.action} → ${e.resource}` : "delegate → production deployer", text: e.detail, stamp: "Denied" }));
+  const label = e => e.rule.startsWith("PROOF_") ? "replay stolen token, no holder key" : e.action ? `${e.action} → ${e.resource}` : "delegate → production deployer";
+  const rows = attempts.map(e => ({ event: e, code: label(e), text: e.detail, stamp: "Denied" }));
   if (revoked) rows.push({ event: revoked, code: "revoke branch", text: revoked.detail, stamp: "Void" });
   rows.forEach((row, i) => {
     const b = el("button", "attempt"); b.type = "button";
@@ -262,6 +263,7 @@ function renderInspector(flip = false) {
     field("Issued by", parent?.subject || "Local operator"),
     field("Expires", expiry.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
     field("Budget", `Shared pool, ${state.run.budget} units`, "full"),
+    field("Holder key", g.cnf ? el("code", "", `${g.cnf.slice(0, 12)}…`) : "None: bearer passport", "full"),
   );
   const body = el("div", "pp-body"); body.append(photo, fields);
 

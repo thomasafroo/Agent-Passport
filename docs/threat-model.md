@@ -2,7 +2,7 @@
 
 ## What the attacker controls
 
-An agent may be compromised by untrusted tool output. It can send any request, share its bearer token, retry, fork, create narrower descendants, and race other workers. It can choose an arbitrary operation key and request forbidden resource/action pairs. It cannot modify the gateway code, SQLite database, issuer key, server configuration, or executor.
+An agent may be compromised by untrusted tool output. It can send any request, leak or share its passport token, retry, fork, create narrower descendants, and race other workers. It can choose an arbitrary operation key and request forbidden resource/action pairs. It cannot modify the gateway code, SQLite database, issuer key, server configuration, or executor.
 
 A live model connected through the MCP adapter is treated the same way: untrusted, able to request anything, and holding no token. The adapter is trusted local code that keeps the passports and forwards calls; it adds no policy.
 
@@ -23,11 +23,15 @@ The browser is the local human operator console. It can issue the scripted root 
 | Modified passports and receipts are rejected | Signature and foreign-issuer tests |
 | A live model's tool results never contain passport tokens | MCP adapter output scan across every tool, including delegated workers |
 | Reset withdraws a live agent | Reset revokes the live branch, deletes its token file, and the adapter drops worker passports |
+| A stolen key-bound token authorizes nothing without its holder key | Missing, forged, replayed, stale, non-finite, and request-mismatched proof tests; stolen live token file test over HTTP |
+| Delegation cannot drop or redirect holder binding | Bearer-child and swapped-child-key tests |
+| No holder private key reaches disk | State-directory scan for the adapter's private key bytes |
 
 ## Explicit non-claims
 
 - This is not a sandbox for arbitrary code. A local agent with access to `.state` or the operator environment can bypass these boundaries. An MCP client that also has file or shell access, such as a coding agent in this repository, can read the live token file or reach the loopback console API.
-- Bearer passports can be stolen or shared. Signatures authenticate issuer statements, not the runtime presenting them.
+- Unbound passports are bearer credentials and can be stolen or shared. Holder binding moves the secret from the token to a private key; it does not protect a key held by a compromised holder. A process that can read the adapter's memory, as the same operating-system user can, can take its key.
+- Holder keys are registered through the operator's `.state` directory. A local process that can write there before issuance can substitute its own key, and anything that can reach the loopback console API has operator access. Binding defeats a copied token file, not a compromised operator environment.
 - A shared pool provides a ceiling, not fairness. A worker can consume all remaining allowed operations.
 - Signed tokens alone do not revoke anything. Revocation depends on online durable state checks.
 - Already dispatched operations can finish after revocation. Effects cannot be undone.

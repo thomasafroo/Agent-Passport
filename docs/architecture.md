@@ -4,7 +4,31 @@
 
 A passport signs canonical JSON containing version, issuer public key, grant ID, root run ID, parent ID, subject label, exact resource/action pairs, expiry, and depth. The gateway verifies the signature and checks that the claims exactly match the durable record. Records are immutable except the separate revocation flag. A token from another issuer fails verification.
 
-A subject is an operator-assigned name, not proof of an operating-system process identity. The passport is a bearer credential. Two processes holding the same passport use the same identity and budget. Root issuance is a trusted Python/control-plane action; it is not an agent API capability.
+A subject is an operator-assigned name, not proof of an operating-system process identity. Root issuance is a trusted Python/control-plane action; it is not an agent API capability.
+
+## Holder binding
+
+A grant may carry a holder key: a raw Ed25519 public key stored with the grant and signed into the passport claims as `cnf`. Grants without one are bearer passports, as before; any process holding the token uses the same identity and budget.
+
+For a key-bound passport, every agent request (operation, delegation, or passport read) must carry a proof in the `X-Passport-Proof` header. The proof is a signature by the holder's private key over canonical JSON containing:
+
+```text
+ath  SHA-256 of the exact passport token
+op   execute | delegate | inspect
+req  SHA-256 of the operation name and the exact request fields
+iat  the holder's timestamp
+jti  a single-use nonce
+```
+
+The gateway verifies the proof inside the same write transaction as the request. A missing proof is `PROOF_REQUIRED`. A wrong key, token, operation, or request is `PROOF_INVALID`. A timestamp more than 60 seconds from the gateway clock is `PROOF_STALE`. A nonce seen before for that grant is `PROOF_REPLAYED`. Nonces are kept for twice the freshness window, so pruning can never reopen a proof that would still be fresh. Each denial is recorded in the run's ledger.
+
+Binding attenuates like scope. A child of a key-bound passport must name its own holder key (`BINDING_REQUIRED` otherwise), and the parent's proof covers that key, so an intercepted delegation cannot be redirected to another key. An unbound parent may issue a bound child. Receipts for bound operations include the holder key.
+
+A fresh proof is required for each retry. The idempotency rules are unchanged: a retry with the same key and a new proof returns the recorded operation without executing again.
+
+Existing databases are upgraded in place. Grants created before binding remain unbound, and their tokens verify unchanged.
+
+The scripted story binds every agent, each to its own key. The MCP adapter generates its key in process memory at startup and writes only the public half to `.state/live-agent.pub`; the console binds the live passport to that key and refuses to issue one if the adapter has not registered. The adapter gives each worker it delegates a separate in-memory key.
 
 Delegation requires a valid, unexpired, unrevoked ancestor chain. Each child pair must occur in its parent's pair set. Actions and resources are not separate allowlists: allowing `logs.read` on staging and `code.read` on a repository must never allow `logs.read` on the repository. No glob expansion, wildcard, or resource alias resolution exists. Expiry must be later than the server clock and no later than the parent. Depth is capped at eight, and a run at 150 grants.
 

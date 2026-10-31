@@ -12,8 +12,11 @@ class InProcessGateway:
     def __init__(self, client):
         self.client = client
 
-    def call(self, method, path, token, body=None):
-        response = self.client.request(method, path, json=body, headers={"Authorization": f"Bearer {token}"})
+    def call(self, method, path, token, body=None, proof=None):
+        headers = {"Authorization": f"Bearer {token}"}
+        if proof:
+            headers["X-Passport-Proof"] = proof
+        response = self.client.request(method, path, json=body, headers=headers)
         return response.status_code, response.json()
 
 
@@ -22,9 +25,10 @@ def live(tmp_path, monkeypatch):
     monkeypatch.delenv("PASSPORT_OP_REFERENCE", raising=False)
     client = TestClient(create_app(tmp_path))
     console = {"x-passport-console": client.get("/api/session").json()["console_token"]}
+    adapter = Adapter(InProcessGateway(client), tmp_path / "live-agent.token")
+    adapter.register()
     issued = client.post("/api/live/issue", headers=console)
     assert issued.status_code == 200
-    adapter = Adapter(InProcessGateway(client), tmp_path / "live-agent.token")
     return client, console, adapter, issued
 
 
@@ -104,8 +108,10 @@ def test_reset_revokes_live_agent_and_withdraws_its_token(live, tmp_path):
     with pytest.raises(Exception, match="No live agent passport"):
         adapter.operate("repo/checkout", "code.read", worker="Reader")
     assert adapter.workers == {}
-    assert client.post("/api/agent/execute", json={"resource": "staging/checkout", "action": "logs.read", "request_key": "x"},
-                       headers={"Authorization": f"Bearer {old_token}"}).json()["rule"] == "ANCESTOR_REVOKED"
+    body = {"resource": "staging/checkout", "action": "logs.read", "request_key": "x"}
+    proof = adapter.holder.proof(old_token, "execute", body)
+    assert client.post("/api/agent/execute", json=body, headers={"Authorization": f"Bearer {old_token}",
+                       "X-Passport-Proof": proof}).json()["rule"] == "ANCESTOR_REVOKED"
 
 
 def test_agent_cannot_issue_itself_a_live_passport_with_a_bearer_token(live, tmp_path):

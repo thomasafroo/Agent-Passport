@@ -82,8 +82,8 @@ class Executor:
             raise ValueError("Set PASSPORT_FIXTURE_KEY_SHA256 to the fixture credential's SHA-256 digest")
         return cls(passport, OnePasswordCredentials(reference), FixtureService(expected))
 
-    def execute(self, token, resource, action, request_key):
-        op = self.passport.reserve(token, resource, action, request_key)
+    def execute(self, token, resource, action, request_key, proof=None):
+        op = self.passport.reserve(token, resource, action, request_key, proof)
         if op["duplicate"]:
             import json
             return {"operation_id": op["id"], "state": op["state"], "duplicate": True,
