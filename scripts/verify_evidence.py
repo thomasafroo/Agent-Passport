@@ -20,12 +20,23 @@ def verify(evidence, pinned_key, checkpoints=()):
             raise ValueError("Event chain is altered or reordered")
         previous = event["hash"]
         hashes.append(previous)
+    approvals, approved = evidence.get("approvals", []), {}
+    for receipt in approvals:
+        body = receipt.get("body", {})
+        if not verify_receipt(receipt, pinned_key) or body.get("type") != "approval" or body.get("decision") not in {"approved", "denied"}:
+            raise ValueError("Invalid approval signature")
+        if body["run_id"] != evidence["run"]["id"]:
+            raise ValueError("Approval belongs to another run")
+        if body["decision"] == "approved":
+            approved[body["operation_id"]] = hashlib.sha256(canonical(body)).hexdigest()
     for receipt in evidence["receipts"]:
-        # Operation receipts carry no type, so a signed reconciliation or checkpoint cannot pose as one.
+        # Operation receipts carry no type, so a signed reconciliation, approval or checkpoint cannot pose as one.
         if not verify_receipt(receipt, pinned_key) or "type" in receipt["body"]:
             raise ValueError("Invalid receipt signature")
         if receipt["body"]["run_id"] != evidence["run"]["id"]:
             raise ValueError("Receipt belongs to another run")
+        if "approval" in receipt["body"] and approved.get(receipt["body"]["operation_id"]) != receipt["body"]["approval"]:
+            raise ValueError("Receipt cites an approval missing from the evidence")
     reconciliations = evidence.get("reconciliations", [])
     for receipt in reconciliations:
         if not verify_receipt(receipt, pinned_key) or receipt["body"].get("type") != "reconciliation":
@@ -53,9 +64,9 @@ def verify(evidence, pinned_key, checkpoints=()):
     else:
         chain = "An unanchored event chain cannot prove completeness or prevent wholesale rewriting."
     return {"valid": True, "events":len(evidence["events"]), "receipts":len(evidence["receipts"]),
-            "reconciliations":len(reconciliations), "head":previous, "checkpoints":len(checkpoints),
+            "reconciliations":len(reconciliations), "approvals":len(approvals), "head":previous, "checkpoints":len(checkpoints),
             "anchored_events":anchored, "unanchored_events":len(hashes) - anchored,
-            "limitation":"Signatures attest issuer statements, not execution truth. A reconciliation attests an operator's decision, not the upstream effect. " + chain}
+            "limitation":"Signatures attest issuer statements, not execution truth. A reconciliation attests an operator's decision, not the upstream effect. An approval attests that a named operator approved or denied one exact operation, not that the operator was right. " + chain}
 
 
 def load_checkpoints(path, run_id):

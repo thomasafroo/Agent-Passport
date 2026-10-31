@@ -12,6 +12,17 @@ import time
 from .core import Denied, canonical
 
 
+# What an agent is told about an operation waiting on, or ended by, an operator decision.
+APPROVAL_NOTES = {
+    "awaiting_approval": ("APPROVAL_REQUIRED", "An operator must approve this operation before it runs. Nothing has executed; "
+                          "one unit is held. Retry with the same request key to pick up the decision."),
+    "approved": ("OPERATOR_APPROVED", "An operator approved this operation. Retry with the same request key to run it once."),
+    "approval_denied": ("APPROVAL_DENIED", "An operator denied this operation. It did not run, and its unit was returned."),
+    "approval_lapsed": ("APPROVAL_LAPSED", "The approval window passed before the operation was dispatched. It did not run, "
+                        "and its unit was returned."),
+}
+
+
 class CredentialUnavailable(Exception):
     pass
 
@@ -150,6 +161,9 @@ class FixtureService:
             return {"file": "services/checkout/pool.py", "finding": "Pool limit is 8; staging concurrency is 32.", "synthetic": True}
         if action == "patch.propose" and resource == "repo/checkout":
             return {"proposal": "Align staging pool size with worker concurrency; add a saturation test.", "merged": False, "synthetic": True}
+        if action == "config.write" and resource == "staging/checkout":
+            # Approval-required by operator policy. The synthetic change is recorded, not applied anywhere.
+            return {"config": "checkout/payment-pool", "change": "max_connections 8 -> 32 (staging)", "applied": True, "synthetic": True}
         raise CredentialUnavailable("No fixture adapter is registered for this operation.")
 
 
@@ -172,16 +186,34 @@ class Executor:
 
     def execute(self, token, resource, action, request_key, proof=None):
         op = self.passport.reserve(token, resource, action, request_key, proof)
+        if op["state"] == "approved":
+            # A retry after an operator approval. reserve has just rechecked the chain and the
+            # holder proof; dispatch rechecks the chain and consumes the single-use approval.
+            if not self.passport.dispatch(op["id"]):
+                # A concurrent retry dispatched it first. Never execute twice.
+                return self._recorded(self.passport.operation(op["id"]))
+            return self._run(op)
         if op["duplicate"]:
-            import json
-            return {"operation_id": op["id"], "state": op["state"], "duplicate": True,
-                    "result": json.loads(op["result"]) if op["result"] else None,
-                    "receipt": json.loads(op["receipt"]) if op["receipt"] else None}
+            return self._recorded(op)
+        if op["state"] == "awaiting_approval":
+            return self._recorded(op, duplicate=False)
         return self.execute_reserved(op)
+
+    @staticmethod
+    def _recorded(op, duplicate=True):
+        result = {"operation_id": op["id"], "state": op["state"], "duplicate": duplicate,
+                  "result": json.loads(op["result"]) if op["result"] else None,
+                  "receipt": json.loads(op["receipt"]) if op["receipt"] else None}
+        if op["state"] in APPROVAL_NOTES:
+            result["rule"], result["detail"] = APPROVAL_NOTES[op["state"]]
+        return result
 
     def execute_reserved(self, op):
         if not self.passport.dispatch(op["id"]):
             raise Denied("OPERATION_STATE", "Operation already dispatched or cancelled.")
+        return self._run(op)
+
+    def _run(self, op):
         try:
             credential = self.provider.resolve()
         except CredentialUnavailable:
