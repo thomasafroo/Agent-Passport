@@ -7,8 +7,10 @@ const SVG = "http://www.w3.org/2000/svg";
 const el = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = text; return node; };
 const svg = (tag, attrs = {}) => { const node = document.createElementNS(SVG, tag); for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v); return node; };
 
-async function api(path, method = "GET") {
-  const response = await fetch(path, { method, headers: { "X-Passport-Console": session || "" } });
+async function api(path, method = "GET", payload) {
+  const headers = { "X-Passport-Console": session || "" };
+  if (payload !== undefined) headers["Content-Type"] = "application/json";
+  const response = await fetch(path, { method, headers, body: payload === undefined ? undefined : JSON.stringify(payload) });
   const body = await response.json();
   if (!response.ok) throw new Error(body.detail || "The gateway could not complete this request.");
   return body;
@@ -21,7 +23,7 @@ async function action(path) {
   busy = true; $("error").hidden = true; renderControls();
   try { state = await api(path, "POST"); pendingFocus = true; render(); }
   catch (error) { showError(error.message); }
-  finally { busy = false; renderControls(); if (state) renderInspector(); }
+  finally { busy = false; renderControls(); if (state) renderInspector(); loadApprovals(); }
 }
 
 /* ---------- Guilloche: hypotrochoid rosettes and wave bands, the linework of security printing ---------- */
@@ -97,6 +99,7 @@ function renderControls() {
   $("step").classList.toggle("busy", busy);
   $("reset").disabled = busy;
   $("export").disabled = busy || !state;
+  $("request-config").disabled = busy || !state;
   if (state) renderLive();
 }
 
@@ -369,10 +372,11 @@ function renderRace() {
 }
 
 /* ---------- Ledger ---------- */
-const KIND_LABEL = { issued: "Issued", delegated: "Delegated", reserved: "Reserved", completed: "Allowed", denied: "Denied", revoked: "Revoked", injected: "Untrusted input", unknown: "Outcome unknown", reconciled: "Reconciled" };
+const KIND_LABEL = { issued: "Issued", delegated: "Delegated", reserved: "Reserved", completed: "Allowed", denied: "Denied", revoked: "Revoked", injected: "Untrusted input", unknown: "Outcome unknown", reconciled: "Reconciled",
+  awaiting_approval: "Awaiting approval", approved: "Approved", approval_denied: "Approval denied", approval_lapsed: "Approval lapsed" };
 function renderEvents() {
   const container = $("events"); container.replaceChildren();
-  const wanted = e => filter === "all" || (filter === "denied" ? e.kind === "denied" : ["denied", "revoked", "injected"].includes(e.kind));
+  const wanted = e => filter === "all" || (filter === "denied" ? e.kind === "denied" : ["denied", "revoked", "injected", "awaiting_approval", "approved", "approval_denied"].includes(e.kind));
   const events = state.events.filter(wanted).slice().reverse();
   if (!events.length) container.append(el("p", "empty", filter === "all" ? "No decisions yet. Start the investigation to issue passports." : "Nothing denied yet. Inject the malicious output to test the boundary."));
   for (const e of events) {
@@ -402,6 +406,65 @@ function showEvent(e) {
   const raw = el("details"); raw.append(el("summary", "", "Raw record"), el("pre", "", JSON.stringify(e, null, 2)));
   $("event-detail").replaceChildren(el("h3", "", humanRule(e.rule)), el("p", "", e.detail), record, chain, raw);
   $("event-dialog").showModal();
+}
+
+/* ---------- Approvals ---------- */
+let approvals = [], approvalsShown = null;
+const seconds = s => s >= 90 ? `${Math.round(s / 60)} min` : `${Math.max(0, Math.round(s))} s`;
+async function loadApprovals() {
+  if (!session) return;
+  try { approvals = (await api("/api/approvals")).approvals; renderApprovals(); }
+  catch { /* Keep the last list; explicit decisions report failures. */ }
+}
+function approvalMeta(a) {
+  return a.state === "approved" ? `Approved. Runs once when the agent retries; lapses in ${seconds(a.lapses_in)}.`
+    : `Waiting ${seconds(a.age_seconds)}. One unit held. Lapses undecided in ${seconds(a.lapses_in)}.`;
+}
+function renderApprovals() {
+  const scripted = approvals.some(a => a.subject === "Config worker");
+  $("request-config").textContent = scripted ? "Retry as the config worker" : "Script a config change request";
+  $("request-config").disabled = busy || !state;
+  const list = $("approval-list");
+  const signature = approvals.map(a => `${a.id}:${a.state}`).join(",");
+  if (signature === approvalsShown) {
+    // Same requests: refresh timers only, so a reason being typed is not lost.
+    approvals.forEach(a => { const meta = list.querySelector(`[data-op="${a.id}"] .approval-meta`); if (meta) meta.textContent = approvalMeta(a); });
+    return;
+  }
+  approvalsShown = signature;
+  list.replaceChildren();
+  if (!approvals.length) { list.append(el("p", "empty", "Nothing is waiting. A config write from the live agent or the scripted worker appears here.")); return; }
+  for (const a of approvals) {
+    const card = el("article", `approval ${a.state}`); card.dataset.op = a.id;
+    const head = el("div", "approval-head");
+    const what = el("span"); what.append(el("strong", "", a.subject), document.createTextNode(` asks for ${a.action} on ${a.resource}`));
+    head.append(what, el("code", "", a.id.slice(0, 15) + "…"));
+    head.lastChild.title = a.id;
+    card.append(head, el("p", "approval-meta", approvalMeta(a)));
+    if (a.state === "awaiting_approval") {
+      const form = el("form", "approval-form");
+      const reason = el("input"); reason.name = "reason"; reason.required = true; reason.minLength = 10; reason.maxLength = 500;
+      reason.placeholder = "Reason, 10 to 500 characters"; reason.setAttribute("aria-label", `Reason for the decision on ${a.id}`);
+      const approve = el("button", "primary small", "Approve"); approve.type = "submit"; approve.value = "approve";
+      const deny = el("button", "ghost", "Deny"); deny.type = "submit"; deny.value = "deny";
+      form.append(reason, approve, deny);
+      form.onsubmit = event => { event.preventDefault(); decide(a.id, event.submitter?.value || "approve", reason.value); };
+      card.append(form);
+    } else {
+      card.append(el("p", "approval-note", "The approval is signed and bound to this exact operation. A revoked branch still cannot run it."));
+    }
+    list.append(card);
+  }
+}
+async function decide(oid, decision, reason) {
+  if (busy) return;
+  if (reason.trim().length < 10) { showError("Record a reason of at least 10 characters for the decision."); return; }
+  busy = true; $("error").hidden = true; renderControls();
+  try {
+    await api(`/api/approvals/${encodeURIComponent(oid)}`, "POST", { decision, reason });
+    state = await api("/api/state"); render();
+  } catch (error) { showError(error.message); }
+  finally { busy = false; renderControls(); approvalsShown = null; await loadApprovals(); }
 }
 
 /* ---------- Render ---------- */
@@ -469,6 +532,7 @@ async function exportEvidence() {
 $("step").onclick = primary;
 $("reset").onclick = () => action("/api/demo/reset");
 $("export").onclick = exportEvidence;
+$("request-config").onclick = () => action("/api/demo/config");
 $("issue-live").onclick = async () => { await action("/api/live/issue"); if (state?.live_grant) { selected = state.live_grant; render(); } };
 $("close-dialog").onclick = () => $("event-dialog").close();
 $("event-dialog").onclick = event => { if (event.target === $("event-dialog")) { const r = event.target.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) event.target.close(); } };
@@ -483,7 +547,7 @@ addEventListener("scroll", () => director.classList.toggle("stuck", director.get
 
 drawCover();
 (async () => {
-  try { session = (await api("/api/session")).console_token; state = await api("/api/state"); pendingFocus = true; render(); }
+  try { session = (await api("/api/session")).console_token; state = await api("/api/state"); pendingFocus = true; render(); loadApprovals(); }
   catch (error) { document.querySelector(".pulse").classList.add("offline"); $("narrative").textContent = "The local gateway is not reachable."; showError(`Gateway unavailable: ${error.message}. Start it with python -m agent_passport.`); }
 })();
 let polling = false;
@@ -495,6 +559,7 @@ setInterval(async () => {
     if (!busy && (next.run.id !== state.run.id || next.events.at(-1)?.seq !== state.events.at(-1)?.seq || next.grants.some((g, i) => g.state !== state.grants[i]?.state))) {
       state = next; render();
     }
+    await loadApprovals();
   } catch { /* Keep the last verified state; explicit actions report connection failures. */ }
   finally { polling = false; }
 }, 2000);

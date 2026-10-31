@@ -104,6 +104,15 @@
       <p class="live-status" id="live-status" aria-live="polite"></p>
     </section>
 
+    <section class="approvals" id="approvals" aria-label="Operator approvals">
+      <div class="approvals-copy">
+        <h2>Approvals</h2>
+        <p>Config writes on staging need a person. The request holds one unit and runs nothing until you decide. An approval is signed, used once, and lapses unless the agent retries within five minutes. Denying returns the unit.</p>
+        <button class="ghost small" id="request-config" type="button">Script a config change request</button>
+      </div>
+      <div class="approval-list" id="approval-list" aria-live="polite"></div>
+    </section>
+
     <section class="lower">
       <div class="ledger">
         <div class="ledger-head">
