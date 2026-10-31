@@ -295,3 +295,34 @@ def test_committed_live_runs_give_identical_reports(rust_verifier):
             args += ["--checkpoints", str(runs / witness)]
         python = run_cli([sys.executable, str(PYTHON_VERIFIER), *args])
         assert python[0] == 0 and run_cli([str(rust_verifier), *args]) == python, run
+
+
+def test_approval_checks_match(rust_verifier, scenario):
+    s, engine = scenario, scenario["engine"]
+    root = engine.create_run()
+    executor = Executor(engine)
+    pair = ("staging/checkout", "config.write")
+    for name, decision in [("allowed", "approve"), ("refused", "deny")]:
+        oid = executor.execute(root["token"], *pair, name)["operation_id"]
+        engine.decide_approval(oid, decision, REASON)
+        executor.execute(root["token"], *pair, name)
+    evidence = engine.evidence(root["run_id"])
+    key = engine.public_key
+    assert compare(rust_verifier, s["tmp"], evidence, key)[1]["approvals"] == 2
+    approved = next(i for i, r in enumerate(evidence["approvals"]) if r["body"]["decision"] == "approved")
+    changed = copy.deepcopy(evidence); changed["approvals"][approved]["body"]["reason"] = "tampered"
+    expect_failure(compare(rust_verifier, s["tmp"], changed, key), "Invalid approval signature")
+    for field, value, message in [("run_id", "other", "Approval belongs to another run"),
+                                  ("decision", "invalid", "Invalid approval signature"),
+                                  ("operation_id", "other", "Receipt cites an approval missing from the evidence")]:
+        changed = copy.deepcopy(evidence)
+        body = {**changed["approvals"][approved]["body"], field: value}
+        changed["approvals"][approved] = sign(engine, body)
+        expect_failure(compare(rust_verifier, s["tmp"], changed, key), message)
+    dropped = copy.deepcopy(evidence); dropped["approvals"] = []
+    expect_failure(compare(rust_verifier, s["tmp"], dropped, key), "Receipt cites an approval missing from the evidence")
+    for field, imposter, message in [("receipts", evidence["approvals"][0], "Invalid receipt signature"),
+                                    ("reconciliations", evidence["approvals"][0], "Invalid reconciliation signature"),
+                                    ("approvals", evidence["receipts"][0], "Invalid approval signature")]:
+        changed = copy.deepcopy(evidence); changed[field].append(imposter)
+        expect_failure(compare(rust_verifier, s["tmp"], changed, key), message)

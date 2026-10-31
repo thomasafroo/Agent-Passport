@@ -19,7 +19,7 @@ pub enum Failure {
     /// Input that is not JSON or not valid UTF-8 (a `ValueError` subclass in Python;
     /// the wording differs from Python's).
     Decode(String),
-    /// A `KeyError` or `TypeError`, which the Python CLI also reports as a failure.
+    /// A `KeyError`, `TypeError` or `AttributeError`, reported as a failure.
     Malformed(String),
     /// Input on which the Python CLI exits with an uncaught exception (for example an
     /// `AttributeError` when a list stands where a dict is expected). Still a failure.
@@ -32,7 +32,7 @@ impl Failure {
             Failure::Check(m) => m.clone(),
             Failure::Decode(m) => format!("invalid JSON: {m}"),
             Failure::Malformed(m) => m.clone(),
-            Failure::Unsupported(m) => format!("malformed evidence: {m}"),
+            Failure::Unsupported(m) => m.clone(),
         }
     }
 }
@@ -43,7 +43,7 @@ fn check(msg: &str) -> Failure {
 
 pub const ZERO_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
-const LIMITATION: &str = "Signatures attest issuer statements, not execution truth. A reconciliation attests an operator's decision, not the upstream effect. ";
+const LIMITATION: &str = "Signatures attest issuer statements, not execution truth. A reconciliation attests an operator's decision, not the upstream effect. An approval attests that a named operator approved or denied one exact operation, not that the operator was right. ";
 const ANCHORED: &str = "Checkpoints anchor the chain up to the latest one only as far as the witness copy is independent of the issuer. Events after it are unanchored, and a checkpoint does not make the issuer's log truthful.";
 const UNANCHORED: &str =
     "An unanchored event chain cannot prove completeness or prevent wholesale rewriting.";
@@ -53,6 +53,7 @@ pub struct Report {
     pub events: usize,
     pub receipts: usize,
     pub reconciliations: usize,
+    pub approvals: usize,
     pub head: String,
     pub checkpoints: usize,
     pub anchored_events: usize,
@@ -72,6 +73,7 @@ impl Report {
             (PyStr::new("events"), n(self.events)),
             (PyStr::new("receipts"), n(self.receipts)),
             (PyStr::new("reconciliations"), n(self.reconciliations)),
+            (PyStr::new("approvals"), n(self.approvals)),
             (PyStr::new("head"), Value::str(&self.head)),
             (PyStr::new("checkpoints"), n(self.checkpoints)),
             (PyStr::new("anchored_events"), n(self.anchored_events)),
@@ -180,6 +182,16 @@ fn run_id(evidence: &Value) -> Result<&Value, Failure> {
     getitem(getitem(evidence, "run")?, "id")
 }
 
+fn hashable(value: &Value) -> Result<(), Failure> {
+    if matches!(value, Value::List(_) | Value::Dict(_)) {
+        return Err(Failure::Malformed(format!(
+            "unhashable type: '{}'",
+            value.type_name()
+        )));
+    }
+    Ok(())
+}
+
 // ------------------------------------------------------------ verify
 
 /// `verify(evidence, pinned_key, checkpoints)`. Checkpoints must come from a witness
@@ -222,6 +234,39 @@ pub fn verify(
         hashes.push(previous.clone());
     }
 
+    let empty = Value::List(Vec::new());
+    let empty_body = Value::Dict(Vec::new());
+    let null = Value::Null;
+    let approvals = get(evidence, "approvals")?.unwrap_or(&empty);
+    let mut approved: Vec<(Value, String)> = Vec::new();
+    for receipt in iterate(approvals)? {
+        let body = get(&receipt, "body")?.unwrap_or(&empty_body);
+        if !verify_receipt(&receipt, pinned_key)
+            || !matches!(get(body, "type")?, Some(t) if t.is_str("approval"))
+        {
+            return Err(check("Invalid approval signature"));
+        }
+        let decision = get(body, "decision")?.unwrap_or(&null);
+        if matches!(decision, Value::List(_) | Value::Dict(_)) {
+            return Err(Failure::Malformed(format!(
+                "unhashable type: '{}'",
+                decision.type_name()
+            )));
+        }
+        if !decision.is_str("approved") && !decision.is_str("denied") {
+            return Err(check("Invalid approval signature"));
+        }
+        if !py_eq(getitem(body, "run_id")?, run_id(evidence)?) {
+            return Err(check("Approval belongs to another run"));
+        }
+        if decision.is_str("approved") {
+            let id = getitem(body, "operation_id")?;
+            hashable(id)?;
+            approved.retain(|(key, _)| !py_eq(key, id));
+            approved.push((id.clone(), sha256_hex(&pyjson::canonical(body))));
+        }
+    }
+
     let receipts = getitem(evidence, "receipts")?;
     for receipt in iterate(receipts)? {
         // Operation receipts carry no type, so a signed reconciliation or checkpoint cannot pose as one.
@@ -233,6 +278,19 @@ pub fn verify(
             run_id(evidence)?,
         ) {
             return Err(check("Receipt belongs to another run"));
+        }
+        let body = getitem(&receipt, "body")?;
+        if contains(body, "approval")? {
+            let id = getitem(body, "operation_id")?;
+            hashable(id)?;
+            let cited = approved
+                .iter()
+                .find(|(key, _)| py_eq(key, id))
+                .map(|(_, digest)| Value::str(digest))
+                .unwrap_or(Value::Null);
+            if !py_eq(&cited, getitem(body, "approval")?) {
+                return Err(check("Receipt cites an approval missing from the evidence"));
+            }
         }
     }
 
@@ -295,6 +353,7 @@ pub fn verify(
         events: length(events),
         receipts: length(receipts),
         reconciliations: length(reconciliations),
+        approvals: length(approvals),
         head: previous,
         checkpoints: checkpoints.len(),
         anchored_events: anchored,
