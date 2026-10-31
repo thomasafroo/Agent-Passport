@@ -31,6 +31,8 @@ STRANDED_AFTER = 300
 UNRESOLVED = ("reserved", "dispatched", "unknown")
 RECONCILED = {"completed": ("reconciled_completed", "RECONCILED_COMPLETED"),
               "not_executed": ("reconciled_not_executed", "RECONCILED_NOT_EXECUTED")}
+# Issued on behalf of this owner when a caller names none. Created on first use.
+DEFAULT_OWNER = {"id": "own_local", "user_name": "local-operator", "display_name": "Local operator", "external_id": None}
 
 
 def canonical(value):
@@ -180,6 +182,7 @@ class Passport:
                 except sqlite3.OperationalError as error:
                     if "duplicate column" not in str(error):
                         raise
+            self._migrate_owners(db)
         finally:
             db.close()
 
@@ -217,6 +220,9 @@ class Passport:
         if g["holder_key"]:
             # Confirmation key: only the holder of the matching private key may present this passport.
             claims["cnf"] = g["holder_key"]
+        if g["owner"]:
+            # The accountable human owner the root was issued for. Absent on pre-owner grants.
+            claims["owner"] = g["owner"]
         return claims
 
     def _token(self, g):
@@ -280,6 +286,8 @@ class Passport:
                 raise Denied("ANCESTOR_REVOKED", f"Grant {g['id']} was revoked; this branch has no authority.")
             if g["expires"] <= self.clock():
                 raise Denied("GRANT_EXPIRED", f"Grant {g['id']} has reached its expiry.")
+            if not g["parent"]:
+                self._check_owner(db, g)
             g = db.execute("SELECT * FROM grants WHERE id=?", (g["parent"],)).fetchone() if g["parent"] else None
         return chain
 
@@ -295,7 +303,8 @@ class Passport:
         except (ValueError, KeyError, TypeError):
             raise Denied("SCOPE_INVALID", "Provide exact resource/action pairs; no wildcards.") from None
 
-    def create_run(self, budget=24, ttl=3600, holder_key=None):
+    def create_run(self, budget=24, ttl=3600, holder_key=None, owner=None):
+        """Issue a root on behalf of an accountable owner (the default local operator if none is named)."""
         if type(budget) is not int or not 1 <= budget <= 1000 or not 0 < ttl <= 86400:
             raise Denied("LIMIT_INVALID", "Budget must be 1–1000 units; expiry must be within one day.")
         if holder_key is not None and not valid_public_key(holder_key):
@@ -303,11 +312,12 @@ class Passport:
         run, grant = "run_" + uuid.uuid4().hex[:12], "g_" + uuid.uuid4().hex[:12]
         scopes = [{"resource": r, "action": a} for r, a in sorted(CATALOG)]
         with self.transaction() as db:
+            o = self._issuing_owner(db, owner)
             db.execute("INSERT INTO runs(id,budget,created) VALUES(?,?,?)", (run, budget, self.clock()))
-            db.execute("INSERT INTO grants(id,run_id,parent,subject,scopes,expires,revoked,depth,created,holder_key) VALUES(?,?,?,?,?,?,0,0,?,?)",
-                       (grant, run, None, "Coordinator", canonical(scopes).decode(), self.clock() + ttl, self.clock(), holder_key))
+            db.execute("INSERT INTO grants(id,run_id,parent,subject,scopes,expires,revoked,depth,created,holder_key,owner,owner_epoch) VALUES(?,?,?,?,?,?,0,0,?,?,?,?)",
+                       (grant, run, None, "Coordinator", canonical(scopes).decode(), self.clock() + ttl, self.clock(), holder_key, o["id"], o["epoch"]))
             g = db.execute("SELECT * FROM grants WHERE id=?", (grant,)).fetchone()
-            self.event(db, run, "issued", grant, "ROOT_AUTHORIZED", f"One shared pool of {budget} operation units.")
+            self.event(db, run, "issued", grant, "ROOT_AUTHORIZED", f"One shared pool of {budget} operation units, issued on behalf of {o['display_name']}.", owner_id=o["id"])
             return {"run_id": run, "grant": self._claims(g), "token": self._token(g)}
 
     def delegate(self, token, subject, scopes, expires, holder_key=None, proof=None):
@@ -334,8 +344,10 @@ class Passport:
                     raise Denied("DELEGATION_LIMIT", "This demo permits depth 8 and 150 agents per run.")
                 gid = "g_" + uuid.uuid4().hex[:12]
                 normalized = [{"resource": r, "action": a} for r, a in requested]
-                db.execute("INSERT INTO grants(id,run_id,parent,subject,scopes,expires,revoked,depth,created,holder_key) VALUES(?,?,?,?,?,?,0,?,?,?)",
-                           (gid, parent["run_id"], parent["id"], subject.strip(), canonical(normalized).decode(), expires, parent["depth"] + 1, self.clock(), holder_key))
+                # A child inherits its root's owner; the online owner check reads the root only.
+                db.execute("INSERT INTO grants(id,run_id,parent,subject,scopes,expires,revoked,depth,created,holder_key,owner,owner_epoch) VALUES(?,?,?,?,?,?,0,?,?,?,?,?)",
+                           (gid, parent["run_id"], parent["id"], subject.strip(), canonical(normalized).decode(), expires, parent["depth"] + 1, self.clock(), holder_key,
+                            parent["owner"], parent["owner_epoch"]))
                 g = db.execute("SELECT * FROM grants WHERE id=?", (gid,)).fetchone()
                 self.event(db, parent["run_id"], "delegated", gid, "SCOPE_ATTENUATED", f"{subject.strip()} inherits the same budget pool.")
                 result = {"grant": self._claims(g), "token": self._token(g)}
@@ -426,6 +438,8 @@ class Passport:
                     "policy": POLICY, "cost": 1, "time": self.clock()}
             if g["holder_key"]:
                 body["cnf"] = g["holder_key"]
+            if g["owner"]:
+                body["owner"] = g["owner"]
             receipt = {"body": body, "signature": b64(self.key.sign(canonical(body)))}
             db.execute("UPDATE operations SET state=?,result=?,receipt=? WHERE id=?", (outcome, canonical(result).decode(), canonical(receipt).decode(), oid))
             if outcome != "unknown":
@@ -482,6 +496,8 @@ class Passport:
             if basis is not None:
                 # Trusted executor code only, such as an upstream effect lookup; never agent input.
                 body["basis"] = basis
+            if g["owner"]:
+                body["owner"] = g["owner"]
             receipt = {"body": body, "signature": b64(self.key.sign(canonical(body)))}
             # The guarded update makes a concurrent dispatch, settlement or second decision impossible.
             changed = db.execute(f"UPDATE operations SET state=? WHERE id=? AND state IN ({','.join('?' * len(UNRESOLVED))})",
@@ -509,13 +525,18 @@ class Passport:
                 try:
                     self._chain(db, g)
                 except Denied as e:
-                    state = "revoked" if e.rule == "ANCESTOR_REVOKED" else "expired"
+                    state = {"ANCESTOR_REVOKED": "revoked", "OWNER_DEPROVISIONED": "deprovisioned"}.get(e.rule, "expired")
                 grants.append({**self._claims(g), "state": state, "directly_revoked": bool(g["revoked"])})
             events = [{"seq": e["seq"], "hash": e["hash"], **json.loads(e["body"])} for e in db.execute("SELECT * FROM events WHERE run_id=? ORDER BY seq", (run_id,))]
             result = {"run": dict(run), "grants": grants, "events": events, "public_key": self.public_key, "policy": POLICY, "server_time": self.clock()}
+            owner = next((g["owner"] for g in grants if not g["parent"] and g.get("owner")), None)
+            row = db.execute("SELECT * FROM owners WHERE id=?", (owner,)).fetchone() if owner else None
+            result["owner"] = self._owner_view(row) if row else None
             if include_receipts:
                 result["receipts"] = [json.loads(r[0]) for r in db.execute("SELECT receipt FROM operations WHERE grant_id IN (SELECT id FROM grants WHERE run_id=?) AND receipt IS NOT NULL", (run_id,))]
                 result["reconciliations"] = [json.loads(r[0]) for r in db.execute("SELECT receipt FROM reconciliations WHERE run_id=? ORDER BY rowid", (run_id,))]
+                # The owner's whole signed lifecycle, not only changes made while this run existed.
+                result["lifecycle"] = [json.loads(r[0]) for r in db.execute("SELECT receipt FROM lifecycle WHERE owner_id=? ORDER BY seq", (owner,))] if owner else []
             return result
         finally:
             db.close()
@@ -567,3 +588,181 @@ class Passport:
         body = {"type": "checkpoint", "run_id": run_id, "size": size, "head": head[0] if head else "0" * 64,
                 "policy": POLICY, "time": self.clock()}
         return {"body": body, "signature": b64(self.key.sign(canonical(body)))}
+
+    # ---------- Accountable owners and their lifecycle ----------
+    #
+    # An owner is an operator-managed record of the human on whose behalf a root is issued.
+    # Deprovisioning is an online fact read by _chain, like revocation: descendant rows are never
+    # rewritten. Each deactivation bumps the owner's epoch, and a root records the epoch it was
+    # issued under, so reactivating an owner never revives grants issued before the cut.
+
+    @staticmethod
+    def _migrate_owners(db):
+        db.executescript("""
+          CREATE TABLE IF NOT EXISTS owners (
+            id TEXT PRIMARY KEY, user_name TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL,
+            external_id TEXT UNIQUE, active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+            epoch INTEGER NOT NULL DEFAULT 0 CHECK(epoch>=0), created REAL NOT NULL,
+            updated REAL NOT NULL, deprovisioned_at REAL);
+          CREATE TABLE IF NOT EXISTS lifecycle (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL REFERENCES owners(id),
+            receipt TEXT NOT NULL);
+        """)
+        # Grants created before owners lack these columns. They carry no owner claim, so their
+        # tokens verify unchanged, and no owner check applies to them.
+        columns = {row[1] for row in db.execute("PRAGMA table_info(grants)")}
+        for column, kind in (("owner", "TEXT"), ("owner_epoch", "INTEGER")):
+            if column not in columns:
+                try:
+                    db.execute(f"ALTER TABLE grants ADD COLUMN {column} {kind}")
+                except sqlite3.OperationalError as error:
+                    if "duplicate column" not in str(error):
+                        raise
+
+    def _check_owner(self, db, root):
+        if not root["owner"]:
+            return
+        o = db.execute("SELECT active, epoch FROM owners WHERE id=?", (root["owner"],)).fetchone()
+        if o is None or not o["active"] or o["epoch"] != root["owner_epoch"]:
+            raise Denied("OWNER_DEPROVISIONED", f"Owner {root['owner']} was deprovisioned; grants issued on their behalf have no authority.")
+
+    @staticmethod
+    def _owner_view(o):
+        return {"id": o["id"], "user_name": o["user_name"], "display_name": o["display_name"],
+                "external_id": o["external_id"], "active": bool(o["active"]), "epoch": o["epoch"],
+                "created": o["created"], "updated": o["updated"], "deprovisioned_at": o["deprovisioned_at"]}
+
+    @staticmethod
+    def _text(value, limit, rule, label):
+        if not isinstance(value, str) or not 1 <= len(value.strip()) <= limit or any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise Denied(rule, f"{label} must be 1 to {limit} printable characters.")
+        return value.strip()
+
+    def _lifecycle(self, db, change, o, actor):
+        """Sign an owner-level change, and record it in the ledger of every run issued for that owner."""
+        roots = db.execute("SELECT id, run_id FROM grants WHERE owner=? AND parent IS NULL ORDER BY created, id", (o["id"],)).fetchall()
+        body = {"type": "lifecycle", "change": change, "owner_id": o["id"], "user_name": o["user_name"],
+                "display_name": o["display_name"], "external_id": o["external_id"], "active": bool(o["active"]),
+                "epoch": o["epoch"], "runs": [r["run_id"] for r in roots], "actor": actor, "policy": POLICY,
+                "time": self.clock()}
+        receipt = {"body": body, "signature": b64(self.key.sign(canonical(body)))}
+        db.execute("INSERT INTO lifecycle(owner_id,receipt) VALUES(?,?)", (o["id"], canonical(receipt).decode()))
+        rule, detail = {
+            "deprovisioned": ("OWNER_DEPROVISIONED", f"{actor} deprovisioned {o['display_name']}. Every grant issued on their behalf fails its next check; dispatched and unknown work keeps its units."),
+            "reactivated": ("OWNER_REACTIVATED", f"{actor} reactivated {o['display_name']}. Grants issued before deprovisioning stay void; new issuance is required."),
+        }.get(change, (None, None))
+        if rule:
+            for r in roots:
+                self.event(db, r["run_id"], change, r["id"], rule, detail, owner_id=o["id"])
+        return receipt
+
+    def _insert_owner(self, db, owner_id, user_name, display_name, external_id, actor):
+        now = self.clock()
+        try:
+            db.execute("INSERT INTO owners(id,user_name,display_name,external_id,active,epoch,created,updated) VALUES(?,?,?,?,1,0,?,?)",
+                       (owner_id, user_name, display_name, external_id, now, now))
+        except sqlite3.IntegrityError:
+            raise Denied("OWNER_CONFLICT", "An owner with this user name or external ID already exists.") from None
+        o = db.execute("SELECT * FROM owners WHERE id=?", (owner_id,)).fetchone()
+        return o, self._lifecycle(db, "provisioned", o, actor)
+
+    def _issuing_owner(self, db, owner):
+        if owner is None:
+            owner = DEFAULT_OWNER["id"]
+            if not db.execute("SELECT 1 FROM owners WHERE id=?", (owner,)).fetchone():
+                self._insert_owner(db, owner, DEFAULT_OWNER["user_name"], DEFAULT_OWNER["display_name"], None, "Default owner, created on demand")
+        o = db.execute("SELECT * FROM owners WHERE id=?", (owner,)).fetchone() if isinstance(owner, str) else None
+        if o is None:
+            raise Denied("OWNER_UNKNOWN", "Unknown owner.")
+        if not o["active"]:
+            raise Denied("OWNER_DEPROVISIONED", f"Owner {o['id']} is deprovisioned and cannot be issued new authority.")
+        return o
+
+    def provision_owner(self, user_name, display_name, external_id=None, actor="Local operator"):
+        """Operator or SCIM-shaped provisioning. Never reachable from the agent API."""
+        user_name = self._text(user_name, 100, "OWNER_INVALID", "A user name")
+        display_name = self._text(display_name, 100, "OWNER_INVALID", "A display name")
+        if external_id is not None:
+            external_id = self._text(external_id, 100, "OWNER_INVALID", "An external ID")
+        actor = self._text(actor, 60, "OPERATOR_INVALID", "The acting operator")
+        with self.transaction() as db:
+            o, receipt = self._insert_owner(db, "own_" + uuid.uuid4().hex[:12], user_name, display_name, external_id, actor)
+            return {"owner": self._owner_view(o), "receipt": receipt}
+
+    def set_owner_active(self, owner_id, active, actor="Local operator"):
+        """Deprovision (active=False) or reactivate an owner. A request matching the current state changes nothing.
+
+        The change commits under the same write lock as reservations and dispatches, so none
+        committed after it can succeed for a grant issued on the owner's behalf.
+        """
+        if not isinstance(active, bool):
+            raise Denied("OWNER_INVALID", "Active must be true or false.")
+        actor = self._text(actor, 60, "OPERATOR_INVALID", "The acting operator")
+        with self.transaction() as db:
+            o = db.execute("SELECT * FROM owners WHERE id=?", (owner_id,)).fetchone()
+            if o is None:
+                raise Denied("OWNER_UNKNOWN", "Unknown owner.")
+            if bool(o["active"]) == active:
+                return {"owner": self._owner_view(o), "receipt": None}
+            now = self.clock()
+            if active:
+                db.execute("UPDATE owners SET active=1, updated=? WHERE id=?", (now, owner_id))
+            else:
+                # The epoch bump is what keeps old grants void after a later reactivation.
+                db.execute("UPDATE owners SET active=0, epoch=epoch+1, deprovisioned_at=?, updated=? WHERE id=?", (now, now, owner_id))
+            o = db.execute("SELECT * FROM owners WHERE id=?", (owner_id,)).fetchone()
+            receipt = self._lifecycle(db, "reactivated" if active else "deprovisioned", o, actor)
+            return {"owner": self._owner_view(o), "receipt": receipt}
+
+    def deprovision_owner(self, owner_id, actor="Local operator"):
+        return self.set_owner_active(owner_id, False, actor)
+
+    def reactivate_owner(self, owner_id, actor="Local operator"):
+        """Reactivation permits new issuance only. Grants from before the cut stay void."""
+        return self.set_owner_active(owner_id, True, actor)
+
+    def ensure_default_owner(self, actor="Local operator"):
+        """Provision the default owner, or reactivate it. The console calls this on reset."""
+        with self.transaction() as db:
+            if not db.execute("SELECT 1 FROM owners WHERE id=?", (DEFAULT_OWNER["id"],)).fetchone():
+                self._insert_owner(db, DEFAULT_OWNER["id"], DEFAULT_OWNER["user_name"], DEFAULT_OWNER["display_name"], None, actor)
+        return self.reactivate_owner(DEFAULT_OWNER["id"], actor)["owner"]
+
+    def owners(self):
+        db = self.connect()
+        try:
+            db.execute("BEGIN")
+            rows = db.execute("""SELECT o.*, (SELECT count(*) FROM grants g WHERE g.owner=o.id AND g.parent IS NULL) AS runs
+                                 FROM owners o ORDER BY o.created, o.id""").fetchall()
+            return [{**self._owner_view(o), "runs": o["runs"]} for o in rows]
+        finally:
+            db.close()
+
+    def owner(self, owner_id):
+        db = self.connect()
+        try:
+            o = db.execute("SELECT * FROM owners WHERE id=?", (owner_id,)).fetchone()
+            if o is None:
+                raise Denied("OWNER_UNKNOWN", "Unknown owner.")
+            return self._owner_view(o)
+        finally:
+            db.close()
+
+    def find_owner(self, ref):
+        """Look an owner up by ID, then user name, then external ID."""
+        db = self.connect()
+        try:
+            for column in ("id", "user_name", "external_id"):
+                o = db.execute(f"SELECT * FROM owners WHERE {column}=?", (ref,)).fetchone()
+                if o is not None:
+                    return self._owner_view(o)
+            raise Denied("OWNER_UNKNOWN", "Unknown owner.")
+        finally:
+            db.close()
+
+    def lifecycle(self, owner_id=None):
+        db = self.connect()
+        try:
+            return [json.loads(r[0]) for r in db.execute("SELECT receipt FROM lifecycle WHERE (? IS NULL OR owner_id=?) ORDER BY seq", (owner_id, owner_id))]
+        finally:
+            db.close()

@@ -12,6 +12,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .broker import Executor
 from .core import Passport, Denied
 from .demo import Demo
+from .scim import router as scim_router
 
 
 class Scope(BaseModel):
@@ -140,6 +141,19 @@ def create_app(directory=None):
                 raise HTTPException(404)
             passport.revoke(gid)
             return demo.snapshot()
+
+    @app.post("/api/owners/{owner_id}/deactivate")
+    def deactivate_owner(owner_id: str, request: Request):
+        # Operator offboarding from the console. Voids every grant issued for this owner, online.
+        console(request)
+        with demo.lock:
+            if owner_id not in {o["id"] for o in passport.owners()}:
+                raise HTTPException(404)
+            passport.deprovision_owner(owner_id, "Local console")
+            return demo.snapshot()
+
+    # SCIM-shaped owner provisioning: console session only, never the agent API or a bearer token.
+    app.include_router(scim_router(passport, console))
 
     @app.post("/api/live/issue")
     def issue_live(request: Request):

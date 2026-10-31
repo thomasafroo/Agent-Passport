@@ -20,18 +20,30 @@ def verify(evidence, pinned_key, checkpoints=()):
             raise ValueError("Event chain is altered or reordered")
         previous = event["hash"]
         hashes.append(previous)
+    # The root's owner claim, if any. Exports from before owners have none.
+    owner = next((g.get("owner") for g in evidence.get("grants", []) if not g.get("parent")), None)
     for receipt in evidence["receipts"]:
-        # Operation receipts carry no type, so a signed reconciliation or checkpoint cannot pose as one.
+        # Operation receipts carry no type, so a signed reconciliation, lifecycle change or checkpoint cannot pose as one.
         if not verify_receipt(receipt, pinned_key) or "type" in receipt["body"]:
             raise ValueError("Invalid receipt signature")
         if receipt["body"]["run_id"] != evidence["run"]["id"]:
             raise ValueError("Receipt belongs to another run")
+        if receipt["body"].get("owner") != owner:
+            raise ValueError("Receipt belongs to another owner")
     reconciliations = evidence.get("reconciliations", [])
     for receipt in reconciliations:
         if not verify_receipt(receipt, pinned_key) or receipt["body"].get("type") != "reconciliation":
             raise ValueError("Invalid reconciliation signature")
         if receipt["body"]["run_id"] != evidence["run"]["id"]:
             raise ValueError("Reconciliation belongs to another run")
+        if receipt["body"].get("owner") != owner:
+            raise ValueError("Reconciliation belongs to another owner")
+    lifecycle = evidence.get("lifecycle", [])
+    for receipt in lifecycle:
+        if not verify_receipt(receipt, pinned_key) or receipt["body"].get("type") != "lifecycle":
+            raise ValueError("Invalid lifecycle signature")
+        if owner is None or receipt["body"]["owner_id"] != owner:
+            raise ValueError("Lifecycle receipt belongs to another owner")
     anchored = 0
     for checkpoint in checkpoints:
         body = checkpoint.get("body", {})
@@ -53,9 +65,9 @@ def verify(evidence, pinned_key, checkpoints=()):
     else:
         chain = "An unanchored event chain cannot prove completeness or prevent wholesale rewriting."
     return {"valid": True, "events":len(evidence["events"]), "receipts":len(evidence["receipts"]),
-            "reconciliations":len(reconciliations), "head":previous, "checkpoints":len(checkpoints),
+            "reconciliations":len(reconciliations), "lifecycle":len(lifecycle), "head":previous, "checkpoints":len(checkpoints),
             "anchored_events":anchored, "unanchored_events":len(hashes) - anchored,
-            "limitation":"Signatures attest issuer statements, not execution truth. A reconciliation attests an operator's decision, not the upstream effect. " + chain}
+            "limitation":"Signatures attest issuer statements, not execution truth. A reconciliation attests an operator's decision, not the upstream effect. A lifecycle receipt attests an operator's provisioning change, not who the owner is. " + chain}
 
 
 def load_checkpoints(path, run_id):
