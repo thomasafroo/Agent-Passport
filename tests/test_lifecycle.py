@@ -2,6 +2,7 @@
 import copy
 import json
 import threading
+import time
 
 from fastapi.testclient import TestClient
 import pytest
@@ -192,8 +193,10 @@ def test_concurrent_deprovision_and_reservations_are_linearized(tmp_path):
     def reserve(worker, index):
         barrier.wait()
         # Keep reserving until denied, so every worker is still running when the owner is deprovisioned,
-        # however slow the machine. The cap only stops a broken implementation from looping forever.
-        for n in range(1000):
+        # however slow the machine. SQLite's write lock is not fair: without the short pause, eight
+        # tight loops can hold off the deprovisioning write until the pool is empty. The cap only
+        # stops a broken implementation from looping forever.
+        for n in range(120):
             try:
                 op = engine.reserve(worker["token"], *LOG_READ, f"{index}-{n}")
                 with lock:
@@ -203,6 +206,8 @@ def test_concurrent_deprovision_and_reservations_are_linearized(tmp_path):
             except Denied as e:
                 with lock: denials.append(e.rule)
                 return
+            if progressed.is_set():
+                time.sleep(0.001)
 
     threads = [threading.Thread(target=reserve, args=(w, i)) for i, w in enumerate(workers)]
     for t in threads: t.start()
