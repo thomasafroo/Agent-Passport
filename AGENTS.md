@@ -17,6 +17,7 @@ This is a local security research project, not a marketing-only mockup. Preserve
 - Checkpoint the event chain: `python scripts/checkpoint.py [--run RUN_ID] [--witness PATH]`
 - Reconcile unresolved operations: `python scripts/reconcile.py` lists them; add `OPERATION_ID --outcome completed|not_executed --reason "..."`, or `OPERATION_ID --lookup`
 - Approve or deny high-risk operations: `python scripts/approve.py` lists them; add `OPERATION_ID --decision approve|deny --reason "..."`
+- Manage accountable owners: `python scripts/owners.py list|add USER_NAME --display-name NAME|deactivate OWNER|reactivate OWNER`; the console also serves a SCIM-shaped subset at `/scim/v2/Users` (console session only)
 - Revocation experiment (simulation): `python scripts/revocation_experiment.py`
 - Record a live-model run (needs a running gateway and the `claude` CLI; costs API usage): `python scripts/record_live_run.py --name NAME [--require-mode synthetic|1password-cli]`
 - Live 1Password check (opt-in, real lookup): `python scripts/check_1password.py`; see `docs/1password.md`
@@ -29,6 +30,7 @@ Use the repository's `.venv` when available. No frontend build is required. Relo
 - Every descendant uses its root's shared budget row. Never copy remaining budget into a child.
 - Resource/action pairs must attenuate as pairs; do not create a Cartesian product of independent allowlists.
 - Verify the full ancestor chain at reservation and dispatch. Never replace online revocation with signature checks alone.
+- Deprovisioning an owner is an online check at reservation and dispatch, never a rewrite of descendant rows, and it is irreversible for existing grants: reactivation permits only new issuance. Owner management stays on operator surfaces (console session, local scripts), never on the agent API or behind a bearer token.
 - Agents cannot set cost, choose secret references or upstream URLs, refund operations, or settle outcomes.
 - Unknown effects and crash-stranded operations retain capacity. A timeout is not evidence of a safe refund.
 - Only an operator reconciles unresolved operations, once, with a recorded basis and a signed receipt. Never settle by elapsed time, and never expose reconciliation on the agent API.

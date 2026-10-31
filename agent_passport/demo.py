@@ -80,7 +80,10 @@ class Demo:
         with self.lock:
             self._retire_live()
             holder = Holder()
-            self.root = {**self.passport.create_run(holder_key=holder.public_key), "holder": holder}
+            # The scripted run is issued for the default local owner. If an operator deprovisioned it,
+            # reset re-provisions it with a signed lifecycle receipt; earlier grants stay void.
+            owner = self.passport.ensure_default_owner("Console reset")
+            self.root = {**self.passport.create_run(holder_key=holder.public_key, owner=owner["id"]), "holder": holder}
             self.run_id = self.root["run_id"]
             self.agents = {"Coordinator": self.root}
             self.phase = "ready"
@@ -94,7 +97,8 @@ class Demo:
             return {**self.passport.snapshot(self.run_id), "phase": self.phase,
                     "message": self.message, "metrics": self.metrics,
                     "credential_mode": self.executor.provider.mode, "scripted": True,
-                    "live_grant": self.live["grant"]["id"] if self.live else None}
+                    "live_grant": self.live["grant"]["id"] if self.live else None,
+                    "owners": self.passport.owners()}
 
     def _child(self, parent, name, scopes):
         holder = Holder()

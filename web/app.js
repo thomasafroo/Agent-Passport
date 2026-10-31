@@ -100,7 +100,7 @@ function renderControls() {
   $("reset").disabled = busy;
   $("export").disabled = busy || !state;
   $("request-config").disabled = busy || !state;
-  if (state) renderLive();
+  if (state) { renderLive(); renderOwners(); }
 }
 
 function primary() {
@@ -130,7 +130,7 @@ function renderGraph() {
     button.append(title, scope, el("span", "node-id", g.id));
     const denials = denialsFor(g.id).length;
     if (denials) { const badge = el("span", "denials", String(denials)); badge.title = `${denials} denied request${denials === 1 ? "" : "s"}`; button.append(badge); }
-    if (g.state === "revoked") button.append(el("span", "void", "VOID"));
+    if (g.state === "revoked" || g.state === "deprovisioned") button.append(el("span", "void", "VOID"));
     else if (g.id === state.live_grant) { button.classList.add("live-node"); button.append(el("span", "live-chip", "LIVE")); }
     if (seen && !seen.grants.has(g.id)) { button.classList.add("appear"); button.style.setProperty("--i", String(order++)); }
     else if (seen && denials > (seen.denials.get(g.id) || 0)) button.classList.add("just-denied");
@@ -264,6 +264,7 @@ function renderInspector(flip = false) {
     field("Holder", g.subject, "full"),
     field("Passport no.", el("code", "", g.id), "full"),
     field("Issued by", parent?.subject || "Local operator"),
+    field("Owner", state.owner ? `${state.owner.display_name}${state.owner.active ? "" : " (deprovisioned)"}` : "None: issued before owners", "full"),
     field("Expires", expiry.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
     field("Budget", `Shared pool, ${state.run.budget} units`, "full"),
     field("Holder key", g.cnf ? el("code", "", `${g.cnf.slice(0, 12)}…`) : "None: bearer passport", "full"),
@@ -281,16 +282,19 @@ function renderInspector(flip = false) {
     const seal = el("div", "seal"); seal.append(el("span", "", g.parent ? "Chain valid" : "Root valid")); seal.setAttribute("aria-hidden", "true"); page.append(seal);
   } else {
     const stamp = el("div", `big-stamp${g.state === "expired" ? " expired" : ""}`);
-    stamp.append(document.createTextNode(g.state === "expired" ? "EXPIRED" : "VOID"), el("small", "", g.directly_revoked ? "Branch revoked" : g.state === "revoked" ? "Ancestor revoked" : "Past expiry"));
+    stamp.append(document.createTextNode(g.state === "expired" ? "EXPIRED" : "VOID"), el("small", "", g.state === "deprovisioned" ? "Owner deprovisioned" : g.directly_revoked ? "Branch revoked" : g.state === "revoked" ? "Ancestor revoked" : "Past expiry"));
     page.append(stamp);
-    if (g.state === "revoked") { const punch = el("div", "punch"); punch.setAttribute("aria-hidden", "true"); for (let i = 0; i < 6; i++) punch.append(el("i")); page.append(punch); }
+    if (g.state === "revoked" || g.state === "deprovisioned") { const punch = el("div", "punch"); punch.setAttribute("aria-hidden", "true"); for (let i = 0; i < 6; i++) punch.append(el("i")); page.append(punch); }
   }
 
   const chain = el("div", "ancestry");
   chain.append(el("h3", "", "Chain checked on every request"));
   const list = el("ol");
   const lineage = []; for (let node = g; node; node = grantById(node.parent)) lineage.unshift(node);
-  const operator = el("li", "operator"); operator.append(el("span", "dot"), el("span", "", "Local operator")); list.append(operator);
+  const operator = el("li", state.owner && state.owner.active === false ? "deprovisioned" : "operator");
+  operator.append(el("span", "dot"), el("span", "", state.owner ? `Owner: ${state.owner.display_name}` : "Local operator"));
+  if (state.owner && !state.owner.active) operator.append(el("small", "", "deprovisioned"));
+  list.append(operator);
   for (const node of lineage) {
     const li = el("li", node.directly_revoked ? "cut" : node.state);
     if (node.id === g.id) li.classList.add("self");
@@ -304,6 +308,7 @@ function renderInspector(flip = false) {
   let note;
   if (!g.parent) note = "The root passport holds the run's whole budget. Every delegation below it can only narrow its permissions.";
   else if (g.state === "active") note = "Revoking this passport voids it and every descendant. Unrelated branches keep their authority.";
+  else if (g.state === "deprovisioned") note = "Its owner was deprovisioned. Every passport issued on their behalf is void, and reactivating the owner does not restore it.";
   else note = `This passport can no longer reserve budget or dispatch work.${denials ? ` The gateway has denied ${denials} of its requests.` : ""}`;
   actions.append(el("p", "inspector-note", note));
   if (g.parent) {
@@ -373,10 +378,10 @@ function renderRace() {
 
 /* ---------- Ledger ---------- */
 const KIND_LABEL = { issued: "Issued", delegated: "Delegated", reserved: "Reserved", completed: "Allowed", denied: "Denied", revoked: "Revoked", injected: "Untrusted input", unknown: "Outcome unknown", reconciled: "Reconciled",
-  awaiting_approval: "Awaiting approval", approved: "Approved", approval_denied: "Approval denied", approval_lapsed: "Approval lapsed" };
+  awaiting_approval: "Awaiting approval", approved: "Approved", approval_denied: "Approval denied", approval_lapsed: "Approval lapsed", deprovisioned: "Owner deprovisioned", reactivated: "Owner reactivated" };
 function renderEvents() {
   const container = $("events"); container.replaceChildren();
-  const wanted = e => filter === "all" || (filter === "denied" ? e.kind === "denied" : ["denied", "revoked", "injected", "awaiting_approval", "approved", "approval_denied"].includes(e.kind));
+  const wanted = e => filter === "all" || (filter === "denied" ? e.kind === "denied" : ["denied", "revoked", "injected", "awaiting_approval", "approved", "approval_denied", "deprovisioned"].includes(e.kind));
   const events = state.events.filter(wanted).slice().reverse();
   if (!events.length) container.append(el("p", "empty", filter === "all" ? "No decisions yet. Start the investigation to issue passports." : "Nothing denied yet. Inject the malicious output to test the boundary."));
   for (const e of events) {
@@ -467,6 +472,21 @@ async function decide(oid, decision, reason) {
   finally { busy = false; renderControls(); approvalsShown = null; await loadApprovals(); }
 }
 
+/* ---------- Owners ---------- */
+function renderOwners() {
+  const list = $("owner-list"); list.replaceChildren();
+  for (const o of state.owners || []) {
+    const li = el("li", o.active ? "" : "inactive");
+    const who = el("span"); who.append(el("strong", "", o.display_name), el("small", "", `${o.user_name} · ${o.runs} run${o.runs === 1 ? "" : "s"}${o.id === state.owner?.id ? " · owns this run" : ""}`));
+    const button = el("button", "revoke", o.active ? "Deactivate" : "Deprovisioned"); button.type = "button";
+    button.disabled = busy || !o.active;
+    button.title = o.active ? "Deprovision this owner. Every grant issued for them stops working." : "Reactivate with scripts/owners.py; old grants stay void.";
+    button.onclick = () => action(`/api/owners/${encodeURIComponent(o.id)}/deactivate`);
+    li.append(who, el("span", `tag ${o.active ? "active" : "inactive"}`, o.active ? "Active" : "Inactive"), button);
+    list.append(li);
+  }
+}
+
 /* ---------- Render ---------- */
 const FOCUS_BY_STAGE = { 1: "Log reader", 2: "Log reader", 3: "Log reader", 4: "Patch worker" };
 function renderLive() {
@@ -506,7 +526,7 @@ function render() {
     li.classList.toggle("current", n === s);
     if (n === s) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
   });
-  renderGraph(); renderIncident(); renderInspector(pendingFocus && selected !== seen?.selected); renderBudget(); renderRace(); renderLive(); renderEvents(); renderControls();
+  renderGraph(); renderIncident(); renderInspector(pendingFocus && selected !== seen?.selected); renderBudget(); renderRace(); renderLive(); renderOwners(); renderEvents(); renderControls();
   seen = {
     run: state.run.id, stage: s, spent: state.run.spent, fork: Boolean(state.metrics.fork), selected,
     grants: new Set(state.grants.map(g => g.id)),

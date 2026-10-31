@@ -113,6 +113,14 @@
       <div class="approval-list" id="approval-list" aria-live="polite"></div>
     </section>
 
+    <section class="owners" aria-label="Accountable owners">
+      <div class="live-copy">
+        <h2>Every root has an accountable owner</h2>
+        <p>Passports are issued on behalf of a person. Deactivating an owner offboards them: every grant in every run issued for them fails its next check, and queued work is cancelled. Reactivation never revives old grants; reset issues a new run. Provision owners with <code>scripts/owners.py</code> or the SCIM-shaped <code>/scim/v2/Users</code> subset.</p>
+      </div>
+      <ul class="owner-list" id="owner-list" aria-label="Owners"></ul>
+    </section>
+
     <section class="lower">
       <div class="ledger">
         <div class="ledger-head">

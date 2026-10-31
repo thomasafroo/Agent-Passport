@@ -627,7 +627,7 @@ def covered(path):
     top = path[0]
     if top == "events":
         return path[2] != "seq"
-    if top in ("receipts", "reconciliations"):
+    if top in ("receipts", "reconciliations", "approvals", "lifecycle"):
         return path[2] in ("body", "signature")
     if top == "run":
         return path[1] == "id"
@@ -652,7 +652,10 @@ def test_single_field_evidence_mutations_are_rejected_exactly_where_covered(sign
         new = data.draw(replacement, label="value")
         assume(canonical(new) != canonical(parent[last]))
         parent[last] = new
-    if covered(path):
+    # The unsigned root owner is now cross-checked against signed receipts. Parent edits
+    # matter only if they change which grant is selected as the root.
+    owner = next((g.get("owner") for g in changed.get("grants", []) if not g.get("parent")), None)
+    if covered(path) or owner != evidence["receipts"][0]["body"].get("owner"):
         with pytest.raises(REJECTED):
             verify(changed, key)
     else:

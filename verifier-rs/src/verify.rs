@@ -43,7 +43,7 @@ fn check(msg: &str) -> Failure {
 
 pub const ZERO_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
-const LIMITATION: &str = "Signatures attest issuer statements, not execution truth. A reconciliation attests an operator's decision, not the upstream effect. An approval attests that a named operator approved or denied one exact operation, not that the operator was right. ";
+const LIMITATION: &str = "Signatures attest issuer statements, not execution truth. A reconciliation attests an operator's decision, not the upstream effect. An approval attests that a named operator approved or denied one exact operation, not that the operator was right. A lifecycle receipt attests an operator's provisioning change, not who the owner is. ";
 const ANCHORED: &str = "Checkpoints anchor the chain up to the latest one only as far as the witness copy is independent of the issuer. Events after it are unanchored, and a checkpoint does not make the issuer's log truthful.";
 const UNANCHORED: &str =
     "An unanchored event chain cannot prove completeness or prevent wholesale rewriting.";
@@ -54,6 +54,7 @@ pub struct Report {
     pub receipts: usize,
     pub reconciliations: usize,
     pub approvals: usize,
+    pub lifecycle: usize,
     pub head: String,
     pub checkpoints: usize,
     pub anchored_events: usize,
@@ -74,6 +75,7 @@ impl Report {
             (PyStr::new("receipts"), n(self.receipts)),
             (PyStr::new("reconciliations"), n(self.reconciliations)),
             (PyStr::new("approvals"), n(self.approvals)),
+            (PyStr::new("lifecycle"), n(self.lifecycle)),
             (PyStr::new("head"), Value::str(&self.head)),
             (PyStr::new("checkpoints"), n(self.checkpoints)),
             (PyStr::new("anchored_events"), n(self.anchored_events)),
@@ -192,6 +194,16 @@ fn hashable(value: &Value) -> Result<(), Failure> {
     Ok(())
 }
 
+fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(v) => *v,
+        Value::Int { digits, .. } => digits != "0",
+        Value::Float(v) => *v != 0.0,
+        other => length(other) != 0,
+    }
+}
+
 // ------------------------------------------------------------ verify
 
 /// `verify(evidence, pinned_key, checkpoints)`. Checkpoints must come from a witness
@@ -237,6 +249,13 @@ pub fn verify(
     let empty = Value::List(Vec::new());
     let empty_body = Value::Dict(Vec::new());
     let null = Value::Null;
+    let mut owner = Value::Null;
+    for grant in iterate(get(evidence, "grants")?.unwrap_or(&empty))? {
+        if !truthy(get(&grant, "parent")?.unwrap_or(&null)) {
+            owner = get(&grant, "owner")?.unwrap_or(&null).clone();
+            break;
+        }
+    }
     let approvals = get(evidence, "approvals")?.unwrap_or(&empty);
     let mut approved: Vec<(Value, String)> = Vec::new();
     for receipt in iterate(approvals)? {
@@ -292,6 +311,9 @@ pub fn verify(
                 return Err(check("Receipt cites an approval missing from the evidence"));
             }
         }
+        if !py_eq(get(body, "owner")?.unwrap_or(&null), &owner) {
+            return Err(check("Receipt belongs to another owner"));
+        }
     }
 
     let empty = Value::List(Vec::new());
@@ -307,6 +329,26 @@ pub fn verify(
             run_id(evidence)?,
         ) {
             return Err(check("Reconciliation belongs to another run"));
+        }
+        if !py_eq(
+            get(getitem(&receipt, "body")?, "owner")?.unwrap_or(&null),
+            &owner,
+        ) {
+            return Err(check("Reconciliation belongs to another owner"));
+        }
+    }
+
+    let lifecycle = get(evidence, "lifecycle")?.unwrap_or(&empty);
+    for receipt in iterate(lifecycle)? {
+        if !verify_receipt(&receipt, pinned_key)
+            || !matches!(get(getitem(&receipt, "body")?, "type")?, Some(t) if t.is_str("lifecycle"))
+        {
+            return Err(check("Invalid lifecycle signature"));
+        }
+        if matches!(owner, Value::Null)
+            || !py_eq(getitem(getitem(&receipt, "body")?, "owner_id")?, &owner)
+        {
+            return Err(check("Lifecycle receipt belongs to another owner"));
         }
     }
 
@@ -354,6 +396,7 @@ pub fn verify(
         receipts: length(receipts),
         reconciliations: length(reconciliations),
         approvals: length(approvals),
+        lifecycle: length(lifecycle),
         head: previous,
         checkpoints: checkpoints.len(),
         anchored_events: anchored,
