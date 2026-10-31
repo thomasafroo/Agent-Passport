@@ -17,9 +17,5 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install pip-audit==2.10.1
       # Audits the exact pins in requirements.lock without installing them.
-      # PYSEC-2026-3552 (CVE-2026-69247): PKCS#7 EnvelopedData decryption oracle in cryptography < 50.
-      # Unreachable here: only Ed25519 signing and raw key serialization are used. Remove the ignore
-      # when the cryptography pin is raised to 50.x.
       - run: >-
           python -m pip_audit -r requirements.lock --no-deps --disable-pip --progress-spinner off
-          --ignore-vuln PYSEC-2026-3552
