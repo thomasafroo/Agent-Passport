@@ -63,13 +63,33 @@ stateDiagram-v2
     dispatched --> completed: known success / reserved to spent
     dispatched --> failed: known pre-effect failure / refund
     dispatched --> unknown: uncertain effect / retain reserved unit
+    unknown --> reconciled: operator decision / signed, audited
+    reserved --> reconciled: operator decision after stranded guard
+    dispatched --> reconciled: operator decision after stranded guard
 ```
 
 The executor dispatches an operation only once. Only trusted executor code can settle it, and a settled operation cannot be settled again. The public agent API cannot refund, set prices, dispatch an arbitrary operation ID, or settle outcomes.
 
 A retry with the same grant and idempotency key returns the recorded operation. Reusing that key for a different operation is denied. Retrying a completed operation after revocation is also denied: the chain check happens before returning a cached result. Different grants intentionally have independent key namespaces, but still compete for the same root pool.
 
-If the process crashes after reservation or dispatch, the durable reservation remains. Retrying does not automatically run it again. This sacrifices availability to preserve the budget invariant. There is no automatic timed refund: a timeout does not prove that an upstream effect did not occur. Future adapters need an explicit reconciliation protocol or upstream idempotency support.
+If the process crashes after reservation or dispatch, the durable reservation remains. Retrying does not automatically run it again. This sacrifices availability to preserve the budget invariant. There is no automatic timed refund: a timeout does not prove that an upstream effect did not occur.
+
+## Reconciliation
+
+An operation in `unknown`, or stranded in `reserved` or `dispatched`, keeps its unit until a local operator decides what happened upstream. The operator runs `python scripts/reconcile.py` to list these operations, then records one decision per operation:
+
+```text
+completed      the effect happened; the reserved unit becomes spent
+not_executed   no effect happened; the reserved unit returns to the shared pool
+```
+
+Each decision requires a written basis of 10 to 500 characters and names the deciding operator. In one write transaction, the engine checks the operation is still unresolved, updates its state with a guarded write, moves the unit, appends a `reconciled` ledger event, and stores a reconciliation receipt signed by the issuer. A second decision, or a decision about a settled operation, is denied with `OPERATION_STATE`.
+
+The decision is final for that operation and its idempotency key. A retry with the same key returns the reconciled record and never executes. A late executor cannot dispatch a reconciled reservation or settle a reconciled dispatch.
+
+A `reserved` or `dispatched` operation may still be running in an executor. It cannot be reconciled until 300 seconds after its reservation (`OPERATION_IN_FLIGHT`). This guard only delays the operator's decision; nothing is ever settled by elapsed time. `unknown` operations have already left the executor and have no guard.
+
+Reconciliation is an operator surface: the console session endpoints and the local script. The agent API has no equivalent. The receipt attests that the issuer recorded the operator's statement, not that the upstream effect did or did not occur. A wrong `not_executed` decision returns a unit that was actually spent. Production adapters should prefer upstream idempotency or a queryable effect record over human judgment.
 
 ## Revocation linearization
 

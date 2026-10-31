@@ -32,6 +32,12 @@ class Operation(Scope):
     request_key: str = Field(min_length=1, max_length=100)
 
 
+class Reconciliation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    outcome: str = Field(min_length=1, max_length=20)
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class RequestSizeLimit:
     """Bound the actual body, including chunked requests without Content-Length."""
     def __init__(self, app):
@@ -139,6 +145,19 @@ def create_app(directory=None):
     def issue_live(request: Request):
         console(request)
         return demo.issue_live()
+
+    @app.get("/api/operations/unresolved")
+    def unresolved(request: Request):
+        console(request)
+        return {"operations": passport.unresolved(demo.run_id)}
+
+    @app.post("/api/operations/{oid}/reconcile")
+    def reconcile(oid: str, body: Reconciliation, request: Request):
+        # Operator decision only. There is deliberately no agent-API equivalent.
+        console(request)
+        if oid not in {o["id"] for o in passport.unresolved(demo.run_id)}:
+            raise HTTPException(404)
+        return passport.reconcile(oid, body.outcome, body.reason)
 
     @app.get("/api/evidence")
     def evidence(request: Request):

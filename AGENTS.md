@@ -19,6 +19,7 @@ Use the repository's `.venv` when available. No frontend build is required. Relo
 - Verify the full ancestor chain at reservation and dispatch. Never replace online revocation with signature checks alone.
 - Agents cannot set cost, choose secret references or upstream URLs, refund operations, or settle outcomes.
 - Unknown effects and crash-stranded operations retain capacity. A timeout is not evidence of a safe refund.
+- Only an operator reconciles unresolved operations, once, with a recorded basis and a signed receipt. Never settle by elapsed time, and never expose reconciliation on the agent API.
 - Retries with the same grant/key must not execute again. Keys are bound to an exact operation digest.
 - A key-bound passport needs a fresh, single-use holder proof on every agent request. Delegation cannot drop or redirect the binding. Holder private keys stay in process memory and never reach disk, logs, or tool output.
 - `.state/`, credentials, bearer tokens, and private keys must stay out of Git and user-facing output.
