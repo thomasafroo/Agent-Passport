@@ -27,10 +27,10 @@ The 100-agent protected experiment took 1,986.91 ms overall. This includes conte
 
 - **52 automated tests passed** in the fresh environment. One upstream Starlette test-client deprecation warning is present; no test failed.
 - The offline verifier accepted a scenario export containing **103 events and 24 signed receipts**.
-- Browser checks exercised the complete incident, concurrent fork test, graph selection, manual branch revocation, and desktop/mobile layouts. At the narrow breakpoint the graph and page had no horizontal overflow.
+- Browser checks exercised the complete incident, concurrent fork test, graph selection, manual branch revocation, and desktop/mobile layouts. After the October 30 console redesign, the full story was re-run and checked at 1440 px, about 1020 px, and phone width; a measured run at 577 px found no page-level horizontal overflow. On phones the delegation tree scrolls inside its own panel. The 52 tests were re-run after the redesign and pass.
 - A concurrent first-start check exposed a SQLite journal-mode race. Startup now retries the journal-mode transition within a bounded interval; a 12-instance regression test passes.
 - Browser export verification exposed a Windows text-encoding issue. The verifier now reads UTF-8 explicitly, export preserves the server's bytes, and a non-ASCII export regression test passes.
-- A live 1Password account lookup has **not** been performed. Mocked CLI behavior and secret-safe failure paths are tested.
+- A live 1Password account lookup was performed on 2026-10-30 through the desktop app integration (CLI 2.41.1): three scenario operations completed in `1password-cli` mode against a synthetic key in a dedicated test vault. See [1password.md](1password.md#current-verification-status). Service-account authentication has not been exercised. Mocked CLI behavior and secret-safe failure paths are tested separately.
 - GitHub's Windows/Linux matrix is configured but has not run remotely.
 
 Reproduce with:

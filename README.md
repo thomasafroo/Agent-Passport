@@ -31,13 +31,13 @@ python3 -m venv .venv
 Open **http://127.0.0.1:8787**. Use `--port 8788` if that port is occupied. Run from the repository root. The server binds only to loopback. The console is a trusted local operator surface, not a hosted multi-user application.
 
 1. **Start investigation** — four workers inherit exact, narrower permissions.
-2. **Inject malicious output** — a scripted worker attempts production deployment and broader delegation. Inspect the denied ledger entries.
-3. **Contain branch** — revoke the log reader. Its descendant's queued operation is cancelled and its next request denied.
+2. **Inject malicious output** — a scripted worker attempts production deployment and broader delegation. The incident panel quotes the untrusted output beside both denials.
+3. **Contain branch** — revoke the log reader. Its descendant's queued operation is cancelled and its next request denied; both passports are stamped void.
 4. **Complete investigation** — the patch worker completes a synthetic patch proposal.
-5. **Fork 32 workers** — concurrent requests exhaust the same shared pool without exceeding its limit.
-6. **Export evidence** — download events, signed operation receipts, public issuer key, and measured run results.
+5. **Fork 32 workers** — concurrent requests exhaust the same shared pool without exceeding its limit. Budget cells show which branch spent each unit.
+6. **Download evidence** — events, signed operation receipts, public issuer key, and measured run results.
 
-Click any graph node to inspect its scope, issuer parent, expiry, and status. The inspector can revoke a branch independently of the scripted story. Reset starts a new run; prior records remain on disk. Restarting starts a fresh console story while existing grants, budgets, revocations, and idempotency records remain durable.
+One primary button (or the → key) advances the story, and the inspector follows the agent each step is about. Click any tree node to open its passport: exact permissions, issuer, expiry, the ancestor chain the gateway checks, and a machine-readable zone derived from the grant. The machine-readable zone is decorative encoding, not a security mechanism. The inspector can revoke a branch independently of the scripted story. Reset starts a new run; prior records remain on disk. Restarting starts a fresh console story while existing grants, budgets, revocations, and idempotency records remain durable.
 
 ## What is real
 
@@ -81,7 +81,7 @@ Pin the public key independently before accepting evidence from someone else. A 
 
 The default runs entirely offline. To exercise the real credential path, use a dedicated test vault and synthetic fixture key with the 1Password CLI. Follow [the setup guide](docs/1password.md). Credentials are retrieved only by the executor; agent inputs cannot choose a secret reference, URL, header, shell command, or credential provider.
 
-The CLI contract is tested with a mocked subprocess. A successful live account lookup is a separate integration check and is not claimed by the default test suite.
+The CLI contract is tested with a mocked subprocess. Separately, a live run through the 1Password desktop app integration was performed on 2026-10-30: the scenario's operations completed with the credential resolved from a real test vault. The default test suite does not touch a 1Password account; see [the verification notes](docs/1password.md#current-verification-status) for exactly what that run does and does not show.
 
 ## Architecture
 
