@@ -29,9 +29,13 @@ def verify(evidence, pinned_key):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("file", type=Path); parser.add_argument("--public-key", required=True)
+    parser.add_argument("file", type=Path)
+    # Keys are unpadded URL-safe base64 and may begin with "-"; pass them as --public-key=KEY or by file.
+    key = parser.add_mutually_exclusive_group(required=True)
+    key.add_argument("--public-key"); key.add_argument("--public-key-file", type=Path)
     args = parser.parse_args()
-    try: print(json.dumps(verify(json.loads(args.file.read_text(encoding="utf-8")), args.public_key), indent=2))
+    pinned = args.public_key if args.public_key is not None else args.public_key_file.read_text(encoding="utf-8").strip()
+    try: print(json.dumps(verify(json.loads(args.file.read_text(encoding="utf-8")), pinned), indent=2))
     except (ValueError, KeyError, TypeError) as error:
         print(f"Verification failed: {error}", file=sys.stderr); sys.exit(1)
 

@@ -2,33 +2,128 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Agent Passport — Authority, contained.</title>
+  <title>Agent Passport</title>
   <meta name="description" content="An interactive experiment in fork-safe authority for AI agents. Inspect delegation, shared budgets, and branch revocation.">
-  <link rel="icon" href="data:,">
+  <meta name="theme-color" content="#14213d">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314213d'/%3E%3Ccircle cx='16' cy='9' r='3' fill='%23c9a75a'/%3E%3Cpath d='M16 12v5M16 17l-7 5M16 17l7 5M16 17v5' stroke='%23c9a75a' stroke-width='1.8' fill='none'/%3E%3Ccircle cx='9' cy='23' r='2.2' fill='%23c9a75a'/%3E%3Ccircle cx='16' cy='23' r='2.2' fill='%23c9a75a'/%3E%3Ccircle cx='23' cy='23' r='2.2' fill='%23c9a75a'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/assets/style.css">
   <script src="/assets/app.js" defer></script>
 </head>
 <body>
-  <aside class="rail" aria-label="Brand"><div class="mark" aria-hidden="true">ap<span>↗</span></div><span class="rail-text">AUTHORITY, CONTAINED.</span><span class="version">v0.1</span></aside>
-  <div class="shell">
-    <header><a class="wordmark" href="/">agent<span>passport</span><span class="lab-label">RESEARCH LAB</span></a><div class="header-meta"><span class="status-dot"></span> LOCAL GATEWAY <span class="divider">/</span><span id="provider">SYNTHETIC CREDENTIALS</span></div></header>
-    <main>
-      <section class="intro"><div><div class="eyebrow">EXPERIMENT 001 <span> / </span> DELEGATED AUTHORITY</div><h1>Agents can multiply.<br>Their authority cannot.</h1><p>One team. One budget. Every delegation narrows the boundary.<br class="desktop"> Compromise a worker and see exactly where its authority ends.</p></div><div class="intro-note"><span class="note-index">[ 01 — 04 ]</span><p>Investigate a staging failure.<br>Inject a malicious instruction.<br>Contain the compromised branch.<br>Let the rest of the team finish.</p><span class="synthetic-label">SCRIPTED AGENTS · REAL ENFORCEMENT</span></div></section>
-      <section class="workspace" aria-label="Incident console">
-        <div class="console-toolbar"><div class="console-title"><span class="status-dot"></span> Live authorization graph <span id="run-id"></span></div><div class="toolbar-actions"><button class="quiet" id="export">Export evidence ↗</button><button class="quiet" id="reset">↺ Reset</button></div></div>
-        <div class="console-layout"><div class="graph-side">
-          <div class="graph-topline"><span>STAGING / CHECKOUT</span><div class="legend"><span><i class="legend-dot active"></i> Active</span><span><i class="legend-dot revoked"></i> Revoked</span><span>─ Delegation</span></div></div>
-          <div class="graph" id="graph" aria-label="Select an agent to inspect its passport"></div>
-          <div class="graph-caption"><span>↓ AUTHORITY ONLY NARROWS</span><span id="agent-count">1 passport issued</span></div>
-          <div id="fork-result" class="fork-result" hidden></div>
-        </div><aside class="inspector" aria-label="Passport inspector"><div class="inspector-label">PASSPORT INSPECTOR <span>↗</span></div><div id="inspector"></div></aside></div>
-        <div class="budget-strip"><div class="budget-heading"><span>SHARED OPERATION BUDGET</span><strong><span id="spent">0</span><em> / 24 units</em></strong></div><div class="budget-middle"><div class="budget-track" id="budget-track"></div><div class="budget-key"><span id="budget-description">24 available · 0 reserved</span><span>ONE POOL. EVERY DESCENDANT.</span></div></div><div class="budget-fixed"><span>Invariant</span><code>spent + reserved ≤ limit</code></div></div>
-      </section>
-      <section class="playback" aria-label="Experiment controls"><div><div class="step-label" id="step-label">READY TO INVESTIGATE</div><p id="narrative" aria-live="polite">Connecting to the local gateway…</p></div><div class="playback-actions"><button class="secondary" id="fork" disabled>Fork 32 workers</button><button class="primary" id="step" disabled>Start investigation <span>→</span></button></div></section>
+  <header class="cover">
+    <svg class="cover-rosette" id="cover-rosette" aria-hidden="true" viewBox="-200 -200 400 400"></svg>
+    <div class="cover-inner">
+      <nav class="cover-top" aria-label="Project">
+        <a class="wordmark" href="/">
+          <svg class="emblem" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14.5" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="16" cy="9" r="2.6" fill="currentColor"/><path d="M16 11.6v4.4M16 16l-6.5 5M16 16l6.5 5M16 16v5" stroke="currentColor" stroke-width="1.4" fill="none"/><circle cx="9.5" cy="22" r="2" fill="currentColor"/><circle cx="16" cy="22" r="2" fill="currentColor"/><circle cx="22.5" cy="22" r="2" fill="currentColor"/></svg>
+          <span>Agent Passport</span>
+        </a>
+        <div class="gateway-status"><span class="pulse" aria-hidden="true"></span><span>Local gateway</span><span class="gateway-mode" id="provider">Synthetic credentials</span></div>
+      </nav>
+      <div class="cover-body">
+        <div class="cover-copy">
+          <h1>Agents can multiply.<span>Their authority cannot.</span></h1>
+          <p>Each agent carries a signed passport with exact permissions. Every descendant draws from one shared budget. Compromise a worker and watch where its authority ends.</p>
+        </div>
+        <ol class="stepper" id="stepper" aria-label="Scenario progress">
+          <li data-step="0"><span class="step-num">1</span><span><strong>Delegate</strong><small>Issue four narrower passports</small></span></li>
+          <li data-step="1"><span class="step-num">2</span><span><strong>Inject</strong><small>A worker turns malicious</small></span></li>
+          <li data-step="2"><span class="step-num">3</span><span><strong>Contain</strong><small>Revoke the compromised branch</small></span></li>
+          <li data-step="3"><span class="step-num">4</span><span><strong>Complete</strong><small>The rest of the team finishes</small></span></li>
+          <li data-step="4"><span class="step-num">5</span><span><strong>Fork race</strong><small>32 workers, one budget</small></span></li>
+        </ol>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="console" aria-label="Incident console">
+      <div class="director">
+        <div class="director-copy">
+          <p class="director-step" id="step-label">Ready</p>
+          <p class="director-message" id="narrative" aria-live="polite">Connecting to the local gateway…</p>
+          <p class="director-hint" id="hint"></p>
+        </div>
+        <div class="director-actions">
+          <button class="ghost" id="reset" type="button" title="Start a new run">Reset</button>
+          <button class="primary" id="step" type="button" disabled><span id="step-text">Start investigation</span><kbd aria-hidden="true">→</kbd></button>
+        </div>
+      </div>
       <div id="error" class="error" role="alert" hidden></div>
-      <section class="bottom-grid"><div class="ledger"><div class="section-heading"><h2>Decision ledger</h2><div class="filters" role="group" aria-label="Filter decisions"><button class="selected" data-filter="all" aria-pressed="true">All events</button><button data-filter="denied" aria-pressed="false">Denied</button></div></div><div class="event-table"><div class="event-head"><span>TIME</span><span>AGENT / DECISION</span><span>RESULT</span></div><div id="events"></div></div></div><aside class="boundary-note"><span class="eyebrow">THE SECURITY BOUNDARY</span><h2>The gateway decides.<br>The model doesn't.</h2><p>Signed passports carry exact permissions. The gateway verifies the full delegation chain and reserves budget before every operation.</p><div class="boundary-row"><span>Identity</span><strong>Ed25519 signatures</strong></div><div class="boundary-row"><span>Budget</span><strong>Atomic SQLite transactions</strong></div><div class="boundary-row"><span>Revocation</span><strong>Checked at dispatch</strong></div><div class="boundary-row"><span>Credentials</span><strong>Executor only</strong></div><p class="boundary-foot">This is a local research prototype. Revocation blocks future dispatches; it cannot undo actions already dispatched. Agents and service data are synthetic.</p></aside></section>
-    </main><footer><span>AGENT PASSPORT <span class="footer-slash">/</span> AN INDEPENDENT SECURITY EXPERIMENT</span><span>Built to be inspected, not just watched.</span></footer>
-  </div>
-  <dialog id="event-dialog"><div class="dialog-top"><span class="eyebrow">DECISION DETAIL</span><button class="quiet" id="close-dialog" aria-label="Close decision detail">Close ×</button></div><div id="event-detail"></div></dialog>
+
+      <div class="console-grid">
+        <div class="canvas">
+          <div class="canvas-head">
+            <h2>Delegation tree <span class="run-id" id="run-id"></span></h2>
+            <div class="legend" aria-hidden="true"><span><i class="lg active"></i>Valid</span><span><i class="lg revoked"></i>Void</span><span><i class="lg denied"></i>Denied request</span></div>
+          </div>
+          <div class="tree-scroll"><ul class="tree" id="graph" aria-label="Agents. Select one to inspect its passport."></ul></div>
+          <div class="incident" id="incident" hidden></div>
+          <p class="canvas-foot"><span>Authority only narrows down the tree.</span><span id="agent-count">1 passport issued</span></p>
+        </div>
+        <aside class="inspector" aria-label="Passport inspector">
+          <div id="inspector"></div>
+        </aside>
+      </div>
+
+      <div class="budget">
+        <div class="budget-head">
+          <div>
+            <h2>Shared operation budget</h2>
+            <p id="budget-description">24 available</p>
+          </div>
+          <div class="budget-count"><strong id="spent">0</strong><span> / <span id="budget-limit">24</span> units spent</span></div>
+        </div>
+        <div class="budget-track" id="budget-track"></div>
+        <div class="budget-foot">
+          <div class="budget-key" id="budget-key"></div>
+          <code class="invariant">spent + reserved ≤ limit</code>
+        </div>
+      </div>
+    </section>
+
+    <section class="race" id="race" hidden aria-label="Concurrent fork experiment">
+      <div class="race-copy">
+        <h2>32 workers raced for <span id="race-available">21</span> remaining units.</h2>
+        <p id="race-summary"></p>
+      </div>
+      <div class="race-board" id="race-board"></div>
+      <dl class="race-stats" id="race-stats"></dl>
+    </section>
+
+    <section class="lower">
+      <div class="ledger">
+        <div class="ledger-head">
+          <div><h2>Decision ledger</h2><p>Every gateway decision, hash-linked in order. Select a row for the full record.</p></div>
+          <div class="filters" role="group" aria-label="Filter decisions">
+            <button type="button" class="selected" data-filter="all" aria-pressed="true">All</button>
+            <button type="button" data-filter="key" aria-pressed="false">Security events</button>
+            <button type="button" data-filter="denied" aria-pressed="false">Denied</button>
+          </div>
+        </div>
+        <div class="event-list" id="events"></div>
+      </div>
+      <aside class="boundary">
+        <h2>The gateway decides. The model doesn't.</h2>
+        <p>Agents only ever hold a signed passport. The gateway checks the full delegation chain and reserves budget atomically before anything runs.</p>
+        <dl>
+          <div><dt>Identity</dt><dd>Ed25519-signed passports bound to stored claims</dd></div>
+          <div><dt>Delegation</dt><dd>Exact resource/action pairs; expiry never extends</dd></div>
+          <div><dt>Budget</dt><dd>One SQLite pool per root, reserved in a single transaction</dd></div>
+          <div><dt>Revocation</dt><dd>Ancestors rechecked at reservation and at dispatch</dd></div>
+          <div><dt>Credentials</dt><dd>Resolved by the executor; never handed to agents</dd></div>
+        </dl>
+        <p class="fine">Local research prototype. Agents are scripted and service data is synthetic; the authorization enforcement is real. Revocation blocks future dispatches and cannot undo actions already dispatched.</p>
+        <button class="ghost wide" id="export" type="button" disabled>Download signed evidence</button>
+      </aside>
+    </section>
+  </main>
+
+  <footer><span>Agent Passport — an independent security experiment, not affiliated with 1Password.</span><span>Keyboard: <kbd>→</kbd> next step</span></footer>
+
+  <dialog id="event-dialog" aria-labelledby="dialog-title">
+    <div class="dialog-top"><h2 id="dialog-title">Decision record</h2><button class="ghost" id="close-dialog" type="button" aria-label="Close">Close</button></div>
+    <div id="event-detail"></div>
+  </dialog>
 </body>
 </html>

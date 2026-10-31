@@ -1,3 +1,4 @@
+import base64
 import copy
 import hashlib
 import json
@@ -5,6 +6,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, PublicFormat
 import pytest
 
 from agent_passport.core import Passport, canonical
@@ -55,5 +58,27 @@ def test_cli_verifies_utf8_browser_export(tmp_path):
     export = tmp_path / "browser-export.json"
     export.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     script = Path(__file__).resolve().parents[1] / "scripts" / "verify_evidence.py"
-    result = subprocess.run([sys.executable, str(script), str(export), "--public-key", engine.public_key], capture_output=True, text=True)
+    result = subprocess.run([sys.executable, str(script), str(export), f"--public-key={engine.public_key}"], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_cli_accepts_issuer_key_that_starts_with_dash(tmp_path):
+    # Unpadded URL-safe base64 keys begin with "-" about 1 time in 64; argparse must not read one as a flag.
+    state = tmp_path / "state"; state.mkdir()
+    while True:
+        private = Ed25519PrivateKey.generate()
+        public = base64.urlsafe_b64encode(private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)).decode().rstrip("=")
+        if public.startswith("-"):
+            break
+    (state / "issuer.key").write_bytes(private.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption()))
+    engine = Passport(state)
+    assert engine.public_key == public
+    root = engine.create_run()
+    Executor(engine).execute(root["token"], "staging/checkout", "logs.read", "dash-key")
+    export = tmp_path / "evidence.json"
+    export.write_text(json.dumps(engine.evidence(root["run_id"])), encoding="utf-8")
+    key_file = tmp_path / "issuer-public-key.txt"; key_file.write_text(public + "\n")
+    script = Path(__file__).resolve().parents[1] / "scripts" / "verify_evidence.py"
+    for flags in ([f"--public-key={public}"], ["--public-key-file", str(key_file)]):
+        result = subprocess.run([sys.executable, str(script), str(export), *flags], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
