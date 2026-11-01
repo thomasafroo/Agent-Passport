@@ -104,6 +104,23 @@
       <p class="live-status" id="live-status" aria-live="polite"></p>
     </section>
 
+    <section class="approvals" id="approvals" aria-label="Operator approvals">
+      <div class="approvals-copy">
+        <h2>Approvals</h2>
+        <p>Config writes on staging need a person. The request holds one unit and runs nothing until you decide. An approval is signed, used once, and lapses unless the agent retries within five minutes. Denying returns the unit.</p>
+        <button class="ghost small" id="request-config" type="button">Script a config change request</button>
+      </div>
+      <div class="approval-list" id="approval-list" aria-live="polite"></div>
+    </section>
+
+    <section class="owners" aria-label="Accountable owners">
+      <div class="live-copy">
+        <h2>Every root has an accountable owner</h2>
+        <p>Passports are issued on behalf of a person. Deactivating an owner offboards them: every grant in every run issued for them fails its next check, and queued work is cancelled. Reactivation never revives old grants; reset issues a new run. Provision owners with <code>scripts/owners.py</code> or the SCIM-shaped <code>/scim/v2/Users</code> subset.</p>
+      </div>
+      <ul class="owner-list" id="owner-list" aria-label="Owners"></ul>
+    </section>
+
     <section class="lower">
       <div class="ledger">
         <div class="ledger-head">

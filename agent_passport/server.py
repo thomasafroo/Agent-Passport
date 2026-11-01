@@ -9,9 +9,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .broker import Executor
-from .core import Passport, Denied
+from .broker import Executor, backend_from_environment, passport_from_environment, uses_1password
+from .core import Denied
 from .demo import Demo
+from .scim import router as scim_router
 
 
 class Scope(BaseModel):
@@ -35,6 +36,12 @@ class Operation(Scope):
 class Reconciliation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     outcome: str = Field(min_length=1, max_length=20)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class ApprovalDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: str = Field(min_length=1, max_length=10)
     reason: str = Field(min_length=1, max_length=500)
 
 
@@ -69,8 +76,10 @@ class RequestSizeLimit:
 
 
 def create_app(directory=None):
-    passport = Passport(directory or os.environ.get("PASSPORT_STATE_DIR", ".state"))
-    executor = Executor.from_environment(passport)
+    # One operator-chosen 1Password backend serves both the issuer key and operation credentials.
+    backend = backend_from_environment() if uses_1password() else None
+    passport = passport_from_environment(directory or os.environ.get("PASSPORT_STATE_DIR", ".state"), backend)
+    executor = Executor.from_environment(passport, backend)
     demo = Demo(passport, executor)
     session = secrets.token_urlsafe(32)
     app = FastAPI(title="Agent Passport", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None)
@@ -130,6 +139,8 @@ def create_app(directory=None):
             return demo.step()
         if action == "fork":
             return demo.fork()
+        if action == "config":
+            return demo.request_config_change()
         raise HTTPException(404)
 
     @app.post("/api/grants/{gid}/revoke")
@@ -140,6 +151,19 @@ def create_app(directory=None):
                 raise HTTPException(404)
             passport.revoke(gid)
             return demo.snapshot()
+
+    @app.post("/api/owners/{owner_id}/deactivate")
+    def deactivate_owner(owner_id: str, request: Request):
+        # Operator offboarding from the console. Voids every grant issued for this owner, online.
+        console(request)
+        with demo.lock:
+            if owner_id not in {o["id"] for o in passport.owners()}:
+                raise HTTPException(404)
+            passport.deprovision_owner(owner_id, "Local console")
+            return demo.snapshot()
+
+    # SCIM-shaped owner provisioning: console session only, never the agent API or a bearer token.
+    app.include_router(scim_router(passport, console))
 
     @app.post("/api/live/issue")
     def issue_live(request: Request):
@@ -166,6 +190,19 @@ def create_app(directory=None):
         if oid not in {o["id"] for o in passport.unresolved(demo.run_id)}:
             raise HTTPException(404)
         return executor.resolve(oid)
+
+    @app.get("/api/approvals")
+    def approvals(request: Request):
+        console(request)
+        return {"approvals": passport.pending_approvals(demo.run_id)}
+
+    @app.post("/api/approvals/{oid}")
+    def decide(oid: str, body: ApprovalDecision, request: Request):
+        # Operator decision only. No agent-API route, bearer passport or timer can approve.
+        console(request)
+        if oid not in {o["id"] for o in passport.pending_approvals(demo.run_id) if o["state"] == "awaiting_approval"}:
+            raise HTTPException(404)
+        return passport.decide_approval(oid, body.decision, body.reason)
 
     @app.get("/api/evidence")
     def evidence(request: Request):
@@ -195,7 +232,7 @@ def create_app(directory=None):
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "credential_mode": executor.provider.mode}
+        return {"status": "ok", "credential_mode": executor.provider.mode, "issuer_key": passport.issuer_key_source}
 
     web = Path(__file__).resolve().parent.parent / "web"
 

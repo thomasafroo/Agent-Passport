@@ -19,14 +19,14 @@ KEY_DIGEST = hashlib.sha256(DemoCredentials().resolve().encode()).hexdigest()
 
 class TimeoutAfterEffect(FixtureService):
     """The effect lands upstream, then the response is lost."""
-    def execute(self, *args):
-        super().execute(*args)
+    def execute(self, credential, resource, action, operation_id=None):
+        super().execute(credential, resource, action, operation_id)
         raise TimeoutError("response lost after the effect")
 
 
 class TimeoutBeforeEffect(FixtureService):
     """The request never reaches the upstream, but the executor cannot tell."""
-    def execute(self, *args):
+    def execute(self, credential, resource, action, operation_id=None):
         raise TimeoutError("request lost before the effect")
 
 
@@ -154,7 +154,7 @@ def test_a_lookup_decision_is_final(engine, effects):
 class BrokenProvider:
     mode = "synthetic"
 
-    def resolve(self):
+    def resolve(self, *pair):
         raise CredentialUnavailable("secret-bearing detail")
 
 
@@ -193,8 +193,8 @@ def test_lookup_reconciliations_verify_offline_and_the_basis_is_signed(engine, e
 
 def test_only_the_console_can_request_a_lookup(tmp_path, monkeypatch):
     monkeypatch.delenv("PASSPORT_OP_REFERENCE", raising=False)
-    client = TestClient(create_app(tmp_path))
-    app = client.app
+    app = create_app(tmp_path)
+    client = TestClient(app)
     demo, engine = app.state.demo, app.state.passport
     coordinator = demo.agents["Coordinator"]
     proof = coordinator["holder"].proof(coordinator["token"], "execute", execute_fields(*LOG_READ, "timeout"))

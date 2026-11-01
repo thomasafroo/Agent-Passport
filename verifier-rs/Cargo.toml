@@ -1,0 +1,24 @@
+[package]
+name = "agent-passport-verifier"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Independent offline verifier for Agent Passport evidence, matching scripts/verify_evidence.py"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "verify-evidence"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+# The command-line binary. The library itself does no I/O and builds for wasm32.
+cli = []
+
+[dependencies]
+ed25519-dalek = { version = "=2.2.0", default-features = false }
+sha2 = { version = "=0.10.9", default-features = false }

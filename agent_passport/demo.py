@@ -13,6 +13,8 @@ LIVE_SUBJECT = "Claude (live)"
 LOGS = [{"resource": "staging/checkout", "action": "logs.read"}]
 CODE = [{"resource": "repo/checkout", "action": "code.read"}]
 PATCH = [{"resource": "repo/checkout", "action": "patch.propose"}]
+CONFIG = [{"resource": "staging/checkout", "action": "config.write"}]
+CONFIG_WORKER = "Config worker"
 
 
 class Demo:
@@ -78,11 +80,15 @@ class Demo:
         with self.lock:
             self._retire_live()
             holder = Holder()
-            self.root = {**self.passport.create_run(holder_key=holder.public_key), "holder": holder}
+            # The scripted run is issued for the default local owner. If an operator deprovisioned it,
+            # reset re-provisions it with a signed lifecycle receipt; earlier grants stay void.
+            owner = self.passport.ensure_default_owner("Console reset")
+            self.root = {**self.passport.create_run(holder_key=holder.public_key, owner=owner["id"]), "holder": holder}
             self.run_id = self.root["run_id"]
             self.agents = {"Coordinator": self.root}
             self.phase = "ready"
             self.metrics = {}
+            self.config_key = None  # request key of the scripted config change awaiting a decision
             self.message = "A staging incident. One coordinator. A budget that cannot multiply."
             return self.snapshot()
 
@@ -91,7 +97,8 @@ class Demo:
             return {**self.passport.snapshot(self.run_id), "phase": self.phase,
                     "message": self.message, "metrics": self.metrics,
                     "credential_mode": self.executor.provider.mode, "scripted": True,
-                    "live_grant": self.live["grant"]["id"] if self.live else None}
+                    "live_grant": self.live["grant"]["id"] if self.live else None,
+                    "owners": self.passport.owners()}
 
     def _child(self, parent, name, scopes):
         holder = Holder()
@@ -155,6 +162,27 @@ class Demo:
                 self.metrics["unrelated_branch_completed"] = result.get("state") == "completed"
                 self.phase = "finished"
                 self.message = "The unrelated patch worker completed its proposal. Containment preserved the rest of the team's authority." if self.metrics["unrelated_branch_completed"] else "The patch proposal did not complete. Inspect the ledger for the operator's revocation or credential failure; reset to replay the standard story."
+            return self.snapshot()
+
+    def request_config_change(self):
+        """Optional aside, outside the five-step story: a scripted worker asks for an approval-required change.
+
+        The first call reserves a unit and waits for the operator. Calling again retries with the
+        same request key, as an agent would, and picks up the decision; an approved change runs once.
+        """
+        with self.lock:
+            if CONFIG_WORKER not in self.agents:
+                self._child("Coordinator", CONFIG_WORKER, CONFIG)
+            key = self.config_key or "config-" + uuid.uuid4().hex[:12]
+            result = self._call(CONFIG_WORKER, "staging/checkout", "config.write", key)
+            state = result.get("state")
+            self.config_key = key if state in ("awaiting_approval", "approved") else None
+            self.message = {
+                "awaiting_approval": "The config worker asked to change the staging pool size. Config writes need an operator's approval; one unit is held and nothing has run.",
+                "completed": "The approved config change ran once. Its receipt is bound to the operator's signed approval.",
+                "approval_denied": "The operator denied the config change. It never ran, and its unit returned to the pool.",
+                "approval_lapsed": "The approval lapsed before the change was dispatched. It never ran, and its unit returned to the pool.",
+            }.get(state or "", f"The config change was not performed: {result.get('rule') or state}.")
             return self.snapshot()
 
     def fork(self, count=32):

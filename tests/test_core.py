@@ -165,7 +165,7 @@ def test_crash_reservation_survives_restart(engine):
 
 def test_known_failure_refunds_without_leaking_secret(engine):
     class BrokenProvider:
-        def resolve(self): raise CredentialUnavailable("sensitive-secret-in-error")
+        def resolve(self, *pair): raise CredentialUnavailable("sensitive-secret-in-error")
     root = engine.create_run(budget=1)
     result = Executor(engine, provider=BrokenProvider()).execute(root["token"], "staging/checkout", "logs.read", "failure")
     assert result["state"] == "failed"

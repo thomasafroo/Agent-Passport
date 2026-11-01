@@ -58,7 +58,15 @@ Zero affected rows means denial. The operation record and audit event commit wit
 ```mermaid
 stateDiagram-v2
     [*] --> reserved: atomic authorization + unit reservation
-    reserved --> cancelled: revoked or expired at dispatch / refund
+    [*] --> awaiting_approval: approval-required pair / unit reserved
+    awaiting_approval --> approved: operator approves / signed approval
+    awaiting_approval --> approval_denied: operator denies / signed, refund
+    awaiting_approval --> approval_lapsed: no decision in time / refund
+    approved --> dispatched: agent retry, chain + proof recheck, approval consumed
+    approved --> approval_lapsed: approval unused in time / refund
+    awaiting_approval --> cancelled: chain revoked, expired or owner deprovisioned / refund
+    approved --> cancelled: chain revoked, expired or owner deprovisioned / refund
+    reserved --> cancelled: revoked, expired or owner deprovisioned at dispatch / refund
     reserved --> dispatched: ancestor recheck succeeds
     dispatched --> completed: known success / reserved to spent
     dispatched --> failed: known pre-effect failure / refund
@@ -108,19 +116,95 @@ Fencing is what makes a refund sound. "Not found" alone could be a request still
 
 The lookup is only as good as the upstream's guarantee that effects and records are atomic. The receipt attests what the upstream reported, not independent proof of the effect. A real adapter needs an upstream that offers both idempotency keys and fencing, or an equivalent cancel-if-not-started call.
 
+## Operator approval
+
+Some resource/action pairs are high-risk enough that a person should see each request before it runs. Which pairs is operator policy: `APPROVAL_REQUIRED` in `core.py`, or the `approval_required` argument when the server constructs the engine. No agent request, passport claim or delegation can add or remove an entry. The fixture marks one pair, `config.write` on `staging/checkout`, which the fixture service answers with a synthetic config change.
+
+A reservation of an approval-required pair runs the same transaction as any other: passport, holder proof, ancestor chain, exact pair, idempotency key, and the guarded unit reservation against the root's shared pool. The operation is then stored as `awaiting_approval` instead of `reserved`, with a `reserved` event and an `awaiting_approval` event (`APPROVAL_REQUIRED`). The executor does not dispatch it. The agent gets the operation ID, the state, the rule `APPROVAL_REQUIRED` and an explanation; it has spent one unit's worth of capacity but nothing has crossed the dispatch boundary. `dispatch` refuses an `awaiting_approval` operation.
+
+The operator lists waiting operations with `python scripts/approve.py` or `GET /api/approvals` from the console session, and decides one with `python scripts/approve.py OPERATION_ID --decision approve|deny --reason "..."` or `POST /api/approvals/{oid}`. Like reconciliation, the decision names the operator and needs a reason of 10 to 500 characters. In one write transaction the engine rechecks the operation is still `awaiting_approval`, moves it with a guarded update, stores an issuer-signed approval receipt and appends an `approved` (`OPERATOR_APPROVED`) or `approval_denied` (`OPERATOR_DENIED`) event. A concurrent or repeated decision is `OPERATION_STATE`. The receipt is:
+
+```text
+{"type": "approval", "operation_id", "grant_id", "run_id", "chain", "request_digest", "resource", "action",
+ "decision": "approved" | "denied", "reason", "decided_by", "expires", "policy", "time", ["cnf"]}
+```
+
+Approval does not dispatch anything. The agent retries with the same request key. That retry is an ordinary reservation request: it needs a fresh holder proof for a key-bound passport and passes the full ancestor check. The reservation finds the existing `approved` operation, and dispatch, in its own write transaction, rechecks the chain again and consumes the approval. Consuming it requires an approval row that is approved, unused and unexpired, whose signed body names exactly this operation ID, grant, request digest, resource/action and grant chain, and marks it used with a guarded update. A forged or copied approval is `APPROVAL_INVALID`. The dispatch state change is the same guarded write as before, so concurrent retries dispatch once; a losing retry returns the recorded state. The settled operation receipt carries `approval`, the SHA-256 of the approval body it was dispatched under.
+
+Approvals are short-lived. An approval not consumed within `APPROVAL_TTL` (300 seconds) lapses, and a request no operator decided within `APPROVAL_REQUEST_TTL` (900 seconds) lapses too. Lapse returns the unit, and so do denial and revocation of any ancestor before dispatch. That differs on purpose from the rule that a timeout never refunds:
+
+- A refund is unsafe when an effect may have happened. Effects can only happen after the dispatch boundary, and the only transition across it is `approved → dispatched` inside a write transaction. `awaiting_approval` and `approved` operations have never been dispatched; no credential was resolved and no request reached the upstream.
+- The unit is returned in the same transaction that moves the operation out of `approved` or `awaiting_approval`, with a guarded update on its current state. Dispatch and withdrawal are serialized by the SQLite write lock, so exactly one of them wins. A withdrawn operation can never be dispatched afterwards, and a dispatched one can no longer be withdrawn.
+- Lapse is never an approval. Elapsed time only ever closes the window: nothing is approved, dispatched or settled by a timer.
+
+Lapses and revocations are applied by a sweep inside write transactions that already run: every reservation (for the requester's run), every approval listing and every decision. A lapsed operation is `approval_lapsed` with an `APPROVAL_LAPSED` event; a revoked or expired chain leaves it `cancelled` with the chain's denial rule, like a queued operation cancelled at dispatch. Until a sweep runs, an expired approval still holds its unit, but it cannot be used: dispatch checks the expiry itself.
+
+A retry after denial or lapse returns the recorded state (`APPROVAL_DENIED`, `APPROVAL_LAPSED`) and never executes. A retry after revocation is denied by the chain check, as for any other request.
+
+The approval routes exist only behind the console session header and in the local script. There is no agent-API route, a passport in any header is not a console session, and the console session token is never given to agents. Approval receipts are exported in evidence as `approvals` and checked by the offline verifier.
+
+### MCP adapter
+
+The adapter normally sends a fresh idempotency key with each `perform_operation` call, so two calls are two operations. When the gateway answers `awaiting_approval` (or `approved`), the adapter remembers that key for the exact (worker, resource, action) and reuses it for the next call with the same arguments; that call returns the same operation's pending state or picks up the decision. When the gateway reports any other state or a denial, the key is forgotten and the next call is a new operation. The remembered keys live only in adapter memory and are dropped with the workers when the live passport is reissued or withdrawn. The pending result tells the model in plain words that a human must approve, that nothing has run and one unit is held, and to call again later with the same arguments. It contains no token.
+
 ## Revocation linearization
 
 Revocation commits a flag on a grant in a write transaction. Reservations and dispatches inspect every ancestor in their own write transaction. A dispatch transaction committed after revocation observes it and fails. A dispatch committed before revocation can proceed and finish afterward. The final service call is outside the DB transaction; revocation is not a cancellation primitive for work that has already crossed the dispatch boundary.
 
 Reservations cancelled before dispatch return their units once. Descendant rows are not rewritten on revocation; effective status is derived from the ancestor chain. Sibling branches remain valid, although an abusive branch may already have consumed the shared budget. Containment does not guarantee fairness or unspent capacity for siblings.
 
-There is no authorization cache. A database error fails the request rather than falling back to allow. This implementation does not model remote authorization servers, partitions, distributed clocks, or bounded offline access.
+There is no authorization cache. A database error fails the request rather than falling back to allow.
+
+## Accountable owners and deprovisioning
+
+Every root is issued on behalf of an owner: an operator-managed record of a human with an ID, user name, display name, optional external ID, an active flag, an epoch, and timestamps. `create_run(owner=...)` names one. Callers that name none get the default `Local operator` owner, created on first use. The scripted console run uses that default owner.
+
+The owner ID is signed into the root's claims as `owner`, and every descendant inherits it unchanged. Operation and reconciliation receipts include it. Grants created before owners existed are upgraded in place without one: their tokens verify unchanged, they carry no `owner` claim, and no owner check applies to them.
+
+Deprovisioning is an online fact, like revocation. `_chain` reads the root's owner row in the same write transaction as each reservation and dispatch. The check fails with `OWNER_DEPROVISIONED` when the owner is inactive, or when the root was issued under an earlier owner epoch. No descendant row is rewritten; status is derived. Consequences follow the revocation rules:
+
+```text
+reserved, not dispatched   cancelled at dispatch, unit returned once
+awaiting_approval/approved cancelled in the deprovisioning transaction, unit returned once
+dispatched                 keeps its unit; the trusted executor may still settle it
+unknown                    keeps its unit until an operator reconciles it
+new reservation/delegation denied, OWNER_DEPROVISIONED
+new root for the owner     denied while the owner is inactive
+```
+
+Deactivation commits under the same SQLite write lock as reservations, so no reservation committed after it can succeed for that owner's grants.
+
+Deactivation also withdraws that owner's waiting and approved operations under the same lock. A later decision, retry, or reactivation cannot revive them or return their units again. Approval racing deactivation either commits before the cut and is then withdrawn, or sees an already cancelled operation. Dispatch committed before the cut still retains its unit and may complete.
+
+Reactivation does not restore old grants. Each deactivation increments the owner's epoch, and a root records the epoch it was issued under. After reactivation the owner can be issued new roots; every grant issued before the deactivation stays void, even if no time has passed. Restoring access means new issuance. Resetting the console re-provisions the default owner if it was deactivated, with its own signed receipt, and issues a new run; it never reactivates any other owner.
+
+Each change (provisioned, deprovisioned, reactivated) is signed by the issuer as a `lifecycle` receipt naming the owner, the change, the resulting active flag and epoch, the acting operator, and the runs issued for that owner at that moment. Owner changes are not per run, so they are recorded twice: the signed receipt goes into an owner-level `lifecycle` table, and a hash-linked `deprovisioned` or `reactivated` event is appended to the ledger of every affected run in the same transaction. A run's evidence export includes the full signed lifecycle of its owner under `lifecycle`. The verifier checks each signature, requires `type: lifecycle`, and requires the receipt to name the run's owner. Operation receipts must carry no `type`, and reconciliations, checkpoints and lifecycle receipts each require their own, so none can stand in for another. A lifecycle receipt attests the operator's statement of a provisioning change, not the person's identity.
+
+Owners are managed only from operator surfaces: `python scripts/owners.py`, the console's owners panel (deactivate only), and a SCIM-shaped subset under `/scim/v2/Users`:
+
+```text
+POST   /scim/v2/Users           provision (userName, displayName, optional externalId; created active)
+GET    /scim/v2/Users           list; the only supported filter is userName eq "..."
+GET    /scim/v2/Users/{id}      read
+PATCH  /scim/v2/Users/{id}      exactly one replace of active: {"path":"active","value":false} or {"value":{"active":false}}
+DELETE /scim/v2/Users/{id}      deprovision; the record is kept so past authority stays attributable
+```
+
+This is a demo subset in SCIM's shape, not a conformant SCIM server: no other attributes, filters, paging, PUT, bulk, ETags, `/Schemas` or `/ServiceProviderConfig`; validation errors return 422 rather than SCIM's 400; DELETE leaves the user readable. Request bodies are strict and reject unknown fields. Authentication is the local console session header. Any request carrying an `Authorization` header is refused, so neither a SCIM bearer token nor an agent passport can reach it. There is no identity-provider integration. This implementation does not model remote authorization servers, partitions, distributed clocks, or bounded offline access.
 
 ## Credential boundary
 
-The allowed operation catalog maps fixed resource/action pairs to a synthetic service. The provider is configured by the server operator, never by an agent. The 1Password provider calls an absolute `op` executable discovered from the operator's PATH with a fixed argument vector and no shell. It captures the secret in process memory and never forwards CLI stderr, stdout, or exception output to the agent. A synthetic service checks the configured key's SHA-256 digest and returns known fixture data.
+The allowed operation catalog maps fixed resource/action pairs to a synthetic service; `config.write` on `staging/checkout` additionally needs an operator approval. The provider is configured by the server operator, never by an agent. The 1Password provider calls an absolute `op` executable discovered from the operator's PATH with a fixed argument vector and no shell. It captures the secret in process memory and never forwards CLI stderr, stdout, or exception output to the agent. A synthetic service checks the configured key's SHA-256 digest and returns known fixture data.
 
 This validates credential separation and retrieval, not a production service integration. Python strings cannot be reliably zeroized. The host OS, PATH, CLI, issuer key, database, and trusted executor process are all inside the trust boundary.
+
+### Backends, per-operation references, and the issuer key
+
+`PASSPORT_OP_PROVIDER` selects the 1Password backend: `cli` (default, `op read`) or `sdk` (the official Python SDK with `OP_SERVICE_ACCOUNT_TOKEN`). It is read once at startup from the operator's environment; nothing on the agent API can name a backend, a reference, or a credential mode. The SDK is async-only, so its provider runs one private event loop on a daemon thread and submits each lookup there with a timeout; this works whether or not the calling thread already runs a loop. Both backends turn every failure into a fixed `CredentialUnavailable` message, which the executor settles as a pre-effect failure and refunds.
+
+`PASSPORT_OP_REFERENCES` maps each catalog resource/action pair to its own reference. The map must cover the catalog exactly, so a missing, extra, or mixed pair, a duplicated key, a non-`op://` or multi-line reference, or a malformed file stops startup. The executor resolves only the dispatched operation's reference, after `dispatch` has rechecked the ancestor chain; a denied request resolves nothing. The mapping narrows what each operation fetches. It does not narrow what the executor process could fetch with its token: that is bounded only by the token's own vault permissions.
+
+`PASSPORT_ISSUER_KEY_REFERENCE` loads the issuer's raw 32-byte Ed25519 private key (base64url) through the same backend instead of `.state/issuer.key`. Resolution happens before the engine opens its database. A configured reference that fails to resolve or decode stops startup; there is no fallback to a file key, and the key is never written to the state directory. The server and the operator scripts that sign (`reconcile.py`, `checkpoint.py`) load it the same way, so they sign as one issuer. The key remains in process memory while the gateway runs.
 
 ## Evidence
 

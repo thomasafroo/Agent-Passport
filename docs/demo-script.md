@@ -12,6 +12,8 @@ Run the server with synthetic credentials. Leave the first screen at the root pa
 | 65–80s | Fork 32 workers; point at the budget cells and the race board | “Now 32 workers race for the remaining 21 units. Exactly 21 complete. Eleven are denied. Total spend remains 24.” |
 | 80–90s | Download evidence; show test command | “The core uses real transactions, signed receipts, and reproducible concurrency tests. The agents and service data are synthetic; you can inspect every policy decision.” |
 
+Optional aside, outside the timed story: in the Approvals panel, select “Script a config change request”. The scripted config worker asks for `config.write` on staging; one unit is held and nothing runs. Approve or deny with a reason, then select “Retry as the config worker”. An approved change runs once; a denied one returns its unit. Run it after the fork race, or reset first, because the held or spent unit changes the race's numbers.
+
 If demonstrating 1Password, run the live integration check first and show the header badge reading “1Password CLI, fixture service”. Say “1Password supplies the fixture service credential to the executor,” rather than implying an integration with a production system.
 
 ## Draft launch copy

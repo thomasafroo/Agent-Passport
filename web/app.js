@@ -7,8 +7,10 @@ const SVG = "http://www.w3.org/2000/svg";
 const el = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = text; return node; };
 const svg = (tag, attrs = {}) => { const node = document.createElementNS(SVG, tag); for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v); return node; };
 
-async function api(path, method = "GET") {
-  const response = await fetch(path, { method, headers: { "X-Passport-Console": session || "" } });
+async function api(path, method = "GET", payload) {
+  const headers = { "X-Passport-Console": session || "" };
+  if (payload !== undefined) headers["Content-Type"] = "application/json";
+  const response = await fetch(path, { method, headers, body: payload === undefined ? undefined : JSON.stringify(payload) });
   const body = await response.json();
   if (!response.ok) throw new Error(body.detail || "The gateway could not complete this request.");
   return body;
@@ -21,7 +23,7 @@ async function action(path) {
   busy = true; $("error").hidden = true; renderControls();
   try { state = await api(path, "POST"); pendingFocus = true; render(); }
   catch (error) { showError(error.message); }
-  finally { busy = false; renderControls(); if (state) renderInspector(); }
+  finally { busy = false; renderControls(); if (state) renderInspector(); loadApprovals(); }
 }
 
 /* ---------- Guilloche: hypotrochoid rosettes and wave bands, the linework of security printing ---------- */
@@ -97,7 +99,8 @@ function renderControls() {
   $("step").classList.toggle("busy", busy);
   $("reset").disabled = busy;
   $("export").disabled = busy || !state;
-  if (state) renderLive();
+  $("request-config").disabled = busy || !state;
+  if (state) { renderLive(); renderOwners(); }
 }
 
 function primary() {
@@ -127,7 +130,7 @@ function renderGraph() {
     button.append(title, scope, el("span", "node-id", g.id));
     const denials = denialsFor(g.id).length;
     if (denials) { const badge = el("span", "denials", String(denials)); badge.title = `${denials} denied request${denials === 1 ? "" : "s"}`; button.append(badge); }
-    if (g.state === "revoked") button.append(el("span", "void", "VOID"));
+    if (g.state === "revoked" || g.state === "deprovisioned") button.append(el("span", "void", "VOID"));
     else if (g.id === state.live_grant) { button.classList.add("live-node"); button.append(el("span", "live-chip", "LIVE")); }
     if (seen && !seen.grants.has(g.id)) { button.classList.add("appear"); button.style.setProperty("--i", String(order++)); }
     else if (seen && denials > (seen.denials.get(g.id) || 0)) button.classList.add("just-denied");
@@ -261,6 +264,7 @@ function renderInspector(flip = false) {
     field("Holder", g.subject, "full"),
     field("Passport no.", el("code", "", g.id), "full"),
     field("Issued by", parent?.subject || "Local operator"),
+    field("Owner", state.owner ? `${state.owner.display_name}${state.owner.active ? "" : " (deprovisioned)"}` : "None: issued before owners", "full"),
     field("Expires", expiry.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
     field("Budget", `Shared pool, ${state.run.budget} units`, "full"),
     field("Holder key", g.cnf ? el("code", "", `${g.cnf.slice(0, 12)}…`) : "None: bearer passport", "full"),
@@ -278,16 +282,19 @@ function renderInspector(flip = false) {
     const seal = el("div", "seal"); seal.append(el("span", "", g.parent ? "Chain valid" : "Root valid")); seal.setAttribute("aria-hidden", "true"); page.append(seal);
   } else {
     const stamp = el("div", `big-stamp${g.state === "expired" ? " expired" : ""}`);
-    stamp.append(document.createTextNode(g.state === "expired" ? "EXPIRED" : "VOID"), el("small", "", g.directly_revoked ? "Branch revoked" : g.state === "revoked" ? "Ancestor revoked" : "Past expiry"));
+    stamp.append(document.createTextNode(g.state === "expired" ? "EXPIRED" : "VOID"), el("small", "", g.state === "deprovisioned" ? "Owner deprovisioned" : g.directly_revoked ? "Branch revoked" : g.state === "revoked" ? "Ancestor revoked" : "Past expiry"));
     page.append(stamp);
-    if (g.state === "revoked") { const punch = el("div", "punch"); punch.setAttribute("aria-hidden", "true"); for (let i = 0; i < 6; i++) punch.append(el("i")); page.append(punch); }
+    if (g.state === "revoked" || g.state === "deprovisioned") { const punch = el("div", "punch"); punch.setAttribute("aria-hidden", "true"); for (let i = 0; i < 6; i++) punch.append(el("i")); page.append(punch); }
   }
 
   const chain = el("div", "ancestry");
   chain.append(el("h3", "", "Chain checked on every request"));
   const list = el("ol");
   const lineage = []; for (let node = g; node; node = grantById(node.parent)) lineage.unshift(node);
-  const operator = el("li", "operator"); operator.append(el("span", "dot"), el("span", "", "Local operator")); list.append(operator);
+  const operator = el("li", state.owner && state.owner.active === false ? "deprovisioned" : "operator");
+  operator.append(el("span", "dot"), el("span", "", state.owner ? `Owner: ${state.owner.display_name}` : "Local operator"));
+  if (state.owner && !state.owner.active) operator.append(el("small", "", "deprovisioned"));
+  list.append(operator);
   for (const node of lineage) {
     const li = el("li", node.directly_revoked ? "cut" : node.state);
     if (node.id === g.id) li.classList.add("self");
@@ -301,6 +308,7 @@ function renderInspector(flip = false) {
   let note;
   if (!g.parent) note = "The root passport holds the run's whole budget. Every delegation below it can only narrow its permissions.";
   else if (g.state === "active") note = "Revoking this passport voids it and every descendant. Unrelated branches keep their authority.";
+  else if (g.state === "deprovisioned") note = "Its owner was deprovisioned. Every passport issued on their behalf is void, and reactivating the owner does not restore it.";
   else note = `This passport can no longer reserve budget or dispatch work.${denials ? ` The gateway has denied ${denials} of its requests.` : ""}`;
   actions.append(el("p", "inspector-note", note));
   if (g.parent) {
@@ -369,10 +377,11 @@ function renderRace() {
 }
 
 /* ---------- Ledger ---------- */
-const KIND_LABEL = { issued: "Issued", delegated: "Delegated", reserved: "Reserved", completed: "Allowed", denied: "Denied", revoked: "Revoked", injected: "Untrusted input", unknown: "Outcome unknown", reconciled: "Reconciled" };
+const KIND_LABEL = { issued: "Issued", delegated: "Delegated", reserved: "Reserved", completed: "Allowed", denied: "Denied", revoked: "Revoked", injected: "Untrusted input", unknown: "Outcome unknown", reconciled: "Reconciled",
+  awaiting_approval: "Awaiting approval", approved: "Approved", approval_denied: "Approval denied", approval_lapsed: "Approval lapsed", deprovisioned: "Owner deprovisioned", reactivated: "Owner reactivated" };
 function renderEvents() {
   const container = $("events"); container.replaceChildren();
-  const wanted = e => filter === "all" || (filter === "denied" ? e.kind === "denied" : ["denied", "revoked", "injected"].includes(e.kind));
+  const wanted = e => filter === "all" || (filter === "denied" ? e.kind === "denied" : ["denied", "revoked", "injected", "awaiting_approval", "approved", "approval_denied", "deprovisioned"].includes(e.kind));
   const events = state.events.filter(wanted).slice().reverse();
   if (!events.length) container.append(el("p", "empty", filter === "all" ? "No decisions yet. Start the investigation to issue passports." : "Nothing denied yet. Inject the malicious output to test the boundary."));
   for (const e of events) {
@@ -402,6 +411,80 @@ function showEvent(e) {
   const raw = el("details"); raw.append(el("summary", "", "Raw record"), el("pre", "", JSON.stringify(e, null, 2)));
   $("event-detail").replaceChildren(el("h3", "", humanRule(e.rule)), el("p", "", e.detail), record, chain, raw);
   $("event-dialog").showModal();
+}
+
+/* ---------- Approvals ---------- */
+let approvals = [], approvalsShown = null;
+const seconds = s => s >= 90 ? `${Math.round(s / 60)} min` : `${Math.max(0, Math.round(s))} s`;
+async function loadApprovals() {
+  if (!session) return;
+  try { approvals = (await api("/api/approvals")).approvals; renderApprovals(); }
+  catch { /* Keep the last list; explicit decisions report failures. */ }
+}
+function approvalMeta(a) {
+  return a.state === "approved" ? `Approved. Runs once when the agent retries; lapses in ${seconds(a.lapses_in)}.`
+    : `Waiting ${seconds(a.age_seconds)}. One unit held. Lapses undecided in ${seconds(a.lapses_in)}.`;
+}
+function renderApprovals() {
+  const scripted = approvals.some(a => a.subject === "Config worker");
+  $("request-config").textContent = scripted ? "Retry as the config worker" : "Script a config change request";
+  $("request-config").disabled = busy || !state;
+  const list = $("approval-list");
+  const signature = approvals.map(a => `${a.id}:${a.state}`).join(",");
+  if (signature === approvalsShown) {
+    // Same requests: refresh timers only, so a reason being typed is not lost.
+    approvals.forEach(a => { const meta = list.querySelector(`[data-op="${a.id}"] .approval-meta`); if (meta) meta.textContent = approvalMeta(a); });
+    return;
+  }
+  approvalsShown = signature;
+  list.replaceChildren();
+  if (!approvals.length) { list.append(el("p", "empty", "Nothing is waiting. A config write from the live agent or the scripted worker appears here.")); return; }
+  for (const a of approvals) {
+    const card = el("article", `approval ${a.state}`); card.dataset.op = a.id;
+    const head = el("div", "approval-head");
+    const what = el("span"); what.append(el("strong", "", a.subject), document.createTextNode(` asks for ${a.action} on ${a.resource}`));
+    head.append(what, el("code", "", a.id.slice(0, 15) + "…"));
+    head.lastChild.title = a.id;
+    card.append(head, el("p", "approval-meta", approvalMeta(a)));
+    if (a.state === "awaiting_approval") {
+      const form = el("form", "approval-form");
+      const reason = el("input"); reason.name = "reason"; reason.required = true; reason.minLength = 10; reason.maxLength = 500;
+      reason.placeholder = "Reason, 10 to 500 characters"; reason.setAttribute("aria-label", `Reason for the decision on ${a.id}`);
+      const approve = el("button", "primary small", "Approve"); approve.type = "submit"; approve.value = "approve";
+      const deny = el("button", "ghost", "Deny"); deny.type = "submit"; deny.value = "deny";
+      form.append(reason, approve, deny);
+      form.onsubmit = event => { event.preventDefault(); decide(a.id, event.submitter?.value || "approve", reason.value); };
+      card.append(form);
+    } else {
+      card.append(el("p", "approval-note", "The approval is signed and bound to this exact operation. A revoked branch still cannot run it."));
+    }
+    list.append(card);
+  }
+}
+async function decide(oid, decision, reason) {
+  if (busy) return;
+  if (reason.trim().length < 10) { showError("Record a reason of at least 10 characters for the decision."); return; }
+  busy = true; $("error").hidden = true; renderControls();
+  try {
+    await api(`/api/approvals/${encodeURIComponent(oid)}`, "POST", { decision, reason });
+    state = await api("/api/state"); render();
+  } catch (error) { showError(error.message); }
+  finally { busy = false; renderControls(); approvalsShown = null; await loadApprovals(); }
+}
+
+/* ---------- Owners ---------- */
+function renderOwners() {
+  const list = $("owner-list"); list.replaceChildren();
+  for (const o of state.owners || []) {
+    const li = el("li", o.active ? "" : "inactive");
+    const who = el("span"); who.append(el("strong", "", o.display_name), el("small", "", `${o.user_name} · ${o.runs} run${o.runs === 1 ? "" : "s"}${o.id === state.owner?.id ? " · owns this run" : ""}`));
+    const button = el("button", "revoke", o.active ? "Deactivate" : "Deprovisioned"); button.type = "button";
+    button.disabled = busy || !o.active;
+    button.title = o.active ? "Deprovision this owner. Every grant issued for them stops working." : "Reactivate with scripts/owners.py; old grants stay void.";
+    button.onclick = () => action(`/api/owners/${encodeURIComponent(o.id)}/deactivate`);
+    li.append(who, el("span", `tag ${o.active ? "active" : "inactive"}`, o.active ? "Active" : "Inactive"), button);
+    list.append(li);
+  }
 }
 
 /* ---------- Render ---------- */
@@ -443,7 +526,7 @@ function render() {
     li.classList.toggle("current", n === s);
     if (n === s) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
   });
-  renderGraph(); renderIncident(); renderInspector(pendingFocus && selected !== seen?.selected); renderBudget(); renderRace(); renderLive(); renderEvents(); renderControls();
+  renderGraph(); renderIncident(); renderInspector(pendingFocus && selected !== seen?.selected); renderBudget(); renderRace(); renderLive(); renderOwners(); renderEvents(); renderControls();
   seen = {
     run: state.run.id, stage: s, spent: state.run.spent, fork: Boolean(state.metrics.fork), selected,
     grants: new Set(state.grants.map(g => g.id)),
@@ -469,6 +552,7 @@ async function exportEvidence() {
 $("step").onclick = primary;
 $("reset").onclick = () => action("/api/demo/reset");
 $("export").onclick = exportEvidence;
+$("request-config").onclick = () => action("/api/demo/config");
 $("issue-live").onclick = async () => { await action("/api/live/issue"); if (state?.live_grant) { selected = state.live_grant; render(); } };
 $("close-dialog").onclick = () => $("event-dialog").close();
 $("event-dialog").onclick = event => { if (event.target === $("event-dialog")) { const r = event.target.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) event.target.close(); } };
@@ -483,7 +567,7 @@ addEventListener("scroll", () => director.classList.toggle("stuck", director.get
 
 drawCover();
 (async () => {
-  try { session = (await api("/api/session")).console_token; state = await api("/api/state"); pendingFocus = true; render(); }
+  try { session = (await api("/api/session")).console_token; state = await api("/api/state"); pendingFocus = true; render(); loadApprovals(); }
   catch (error) { document.querySelector(".pulse").classList.add("offline"); $("narrative").textContent = "The local gateway is not reachable."; showError(`Gateway unavailable: ${error.message}. Start it with python -m agent_passport.`); }
 })();
 let polling = false;
@@ -495,6 +579,7 @@ setInterval(async () => {
     if (!busy && (next.run.id !== state.run.id || next.events.at(-1)?.seq !== state.events.at(-1)?.seq || next.grants.some((g, i) => g.state !== state.grants[i]?.state))) {
       state = next; render();
     }
+    await loadApprovals();
   } catch { /* Keep the last verified state; explicit actions report connection failures. */ }
   finally { polling = false; }
 }, 2000);

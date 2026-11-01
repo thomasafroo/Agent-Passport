@@ -18,8 +18,8 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agent_passport.broker import Executor
-from agent_passport.core import Passport, Denied
+from agent_passport.broker import Executor, backend_from_environment, passport_from_environment, uses_1password
+from agent_passport.core import Denied
 
 
 def main(argv=None):
@@ -31,7 +31,13 @@ def main(argv=None):
     parser.add_argument("--lookup", action="store_true", help="Decide from the upstream's effect record instead of an operator statement.")
     parser.add_argument("--state-dir", default=os.environ.get("PASSPORT_STATE_DIR", ".state"))
     args = parser.parse_args(argv)
-    passport = Passport(args.state_dir)
+    try:
+        # Sign with the same issuer key as the gateway, including one held in 1Password.
+        backend = backend_from_environment() if uses_1password() else None
+        passport = passport_from_environment(args.state_dir, backend)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)  # fixed configuration messages only
+        return 2
     if not args.operation:
         print(json.dumps({"unresolved": passport.unresolved()}, indent=2))
         return 0
@@ -41,7 +47,7 @@ def main(argv=None):
         parser.error("deciding an operation requires --outcome and --reason, or --lookup")
     try:
         if args.lookup:
-            result = Executor.from_environment(passport).resolve(args.operation)
+            result = Executor.from_environment(passport, backend).resolve(args.operation)
         else:
             result = passport.reconcile(args.operation, args.outcome, args.reason, args.operator)
     except Denied as error:

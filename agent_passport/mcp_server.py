@@ -6,6 +6,12 @@ sent only to the gateway's agent API. The gateway remains the only policy engine
 
 Every passport this adapter uses is bound to a holder key generated in this process's
 memory. Only the public half is written to disk, so a copied token file authorizes nothing.
+
+Idempotency keys: each perform_operation call normally gets a fresh key, so two calls are two
+operations. An operation that waits for an operator's approval is the exception. Its key is
+remembered for that (worker, resource, action), and the next call with the same arguments
+retries it, which picks up the decision. Once the gateway reports a final state or a denial,
+the key is forgotten and the next call is a new operation.
 """
 from __future__ import annotations
 
@@ -55,6 +61,7 @@ class Adapter:
         self.key_path = self.token_path.with_name("live-agent.pub")
         self.holder = holder or Holder()  # private key exists only in this process
         self.workers = {}  # worker name -> (token, holder); never returned to the model
+        self.awaiting = {}  # (worker, resource, action) -> request key of an operation awaiting approval
         self._loaded = None
         # Headless clients send their first tool call right after starting the adapter, before an
         # operator can issue a passport bound to its new key. Optionally wait for one to appear.
@@ -82,6 +89,7 @@ class Adapter:
         if token != self._loaded:
             # A re-issued or withdrawn passport invalidates every worker delegated under the old one.
             self.workers.clear()
+            self.awaiting.clear()
             self._loaded = token
         if not token:
             raise ToolError("No live agent passport has been issued. In the console, select Issue live passport.")
@@ -127,16 +135,36 @@ class Adapter:
 
     def operate(self, resource, action, worker=None):
         token, holder = self._credentials_for(worker)
-        body = execute_fields(resource, action, uuid.uuid4().hex)
+        slot = (worker or "", resource, action)
+        key = self.awaiting.get(slot) or uuid.uuid4().hex
+        body = execute_fields(resource, action, key)
         status, result = self.gateway.call("POST", "/api/agent/execute", token, body,
                                            proof=holder.proof(token, "execute", body))
         denied = self._decision(status, result)
         if denied:
+            self.awaiting.pop(slot, None)
             return denied
-        outcome = {"allowed": True, "operation_id": result["operation_id"], "state": result["state"]}
-        if result["state"] == "completed":
+        state = result["state"]
+        if state in ("awaiting_approval", "approved"):
+            self.awaiting[slot] = key
+        else:
+            self.awaiting.pop(slot, None)
+        outcome = {"allowed": True, "operation_id": result["operation_id"], "state": state}
+        if state == "completed":
             outcome["result"] = result["result"]
             outcome["receipt_signed_by_gateway"] = bool(result.get("receipt"))
+        elif state == "awaiting_approval":
+            outcome["allowed"] = False
+            outcome["approval_required"] = True
+            outcome["detail"] = ("This operation needs a human operator's approval before it runs. It is waiting at the gateway. "
+                                 "Nothing has executed yet, and one unit of the shared budget is held for it. "
+                                 "Call perform_operation again later with the same arguments to pick up the decision.")
+        elif state == "approval_denied":
+            outcome["allowed"] = False
+            outcome["detail"] = "A human operator denied this operation. It did not run, and its budget unit was returned."
+        elif state == "approval_lapsed":
+            outcome["allowed"] = False
+            outcome["detail"] = "The operation was not run because its approval window passed. Its budget unit was returned."
         else:
             outcome["detail"] = "The operation did not complete. The gateway recorded the outcome."
         return outcome
@@ -178,7 +206,7 @@ def build(adapter):
 
     @mcp.tool()
     def perform_operation(resource: str, action: str, worker: str | None = None) -> dict:
-        """Ask the gateway to perform one operation, such as action "logs.read" on resource "staging/checkout", "code.read" on "repo/checkout", or "patch.propose" on "repo/checkout". Each allowed operation spends one unit from the shared budget. Pass worker to act as a worker you delegated."""
+        """Ask the gateway to perform one operation, such as action "logs.read" on resource "staging/checkout", "code.read" on "repo/checkout", or "patch.propose" on "repo/checkout". Each allowed operation spends one unit from the shared budget. Some operations, such as "config.write" on "staging/checkout", wait for a human operator's approval; call again later with the same arguments to pick up the decision. Pass worker to act as a worker you delegated."""
         return adapter.operate(resource, action, worker)
 
     @mcp.tool()
