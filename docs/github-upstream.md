@@ -36,14 +36,14 @@ lookup fails     LOOKUP_FAILED; nothing changes
 
 The fixture would fence the ID before a "not found" became a refund. GitHub cannot, so "not found" is not evidence that nothing happened. The request could still be in transit and apply later, after its unit was returned and spent again. That is the invariant AGENTS.md states, and here it costs availability: the unit stays reserved until an operator checks the repository and records `--outcome not_executed` with a reason.
 
-GitHub's issue list is eventually consistent, and the first live run showed why that matters. An issue created about a second earlier, carrying the right marker, was missing from the list, so the lookup was inconclusive and the unit stayed reserved (see [Verification status](#verification-status)). Had absence been treated as evidence, the gateway would have refunded a unit whose issue exists. An inconclusive lookup changes nothing, so asking again later is safe; the live check repeats it a few times.
+GitHub's issue list is eventually consistent, and the first live run showed why that matters. An issue created moments earlier, carrying the right marker, was missing from the list, so the lookup was inconclusive and the unit stayed reserved (see [Verification status](#verification-status)). Had absence been treated as evidence, the gateway would have refunded a unit whose issue exists. An inconclusive lookup changes nothing, so asking again later is safe; the live check repeats it a few times.
 
 The creator check runs on GitHub and again in the adapter, so a marker pasted into another account's issue is never taken as this executor's effect. Anyone who controls the token's own account could still file a matching issue by hand. The receipt attests what GitHub reported, not independent proof.
 
 ## Setup
 
 1. **A throwaway repository.** Create an empty public or private repository you are happy to fill with test issues, for example `YOUR_NAME/agent-passport-sandbox`.
-2. **A fine-grained personal access token** (GitHub → Settings → Developer settings → Fine-grained tokens), scoped to **only that repository**, with **Issues: Read and write** and nothing else. Metadata read-only is added automatically. Give it a short expiry. Save it straight into the test vault as a new item, for example a password item titled `GitHub issues`; never paste it into a terminal, file, or chat.
+2. **A fine-grained personal access token** (GitHub → Settings → Developer settings → Fine-grained tokens), scoped to **only that repository**, with **Issues: Read and write** and nothing else. Metadata read-only is added automatically. Give it a short expiry. Save it straight into the test vault as a new item, for example a password item titled `GitHub issues` (any item type works; the reference names its field); never paste it into a terminal, file, or chat.
 3. **A reference map** covering the whole catalog, kept outside the repository. The GitHub pair takes a bare reference, because GitHub authenticates that token itself and no fixture digest applies. The other three pairs keep their fixture items and digests, as in [the 1Password guide](1password.md#map-each-operation-to-its-own-reference):
 
 ```json

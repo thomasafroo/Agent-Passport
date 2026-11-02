@@ -9,8 +9,8 @@
 - **The problem.** When an agent delegates to sub-agents, a naive gateway copies the remaining budget and permissions into each child, or checks the budget before it spends. Either way, concurrent forks can overspend. In this repo's deliberately unsafe check-then-act model, 32 workers sharing a 10-unit budget spent all 32 units.
 - **The fix.** Every descendant draws from its root's single budget row, inside one SQLite `BEGIN IMMEDIATE` transaction with a conditional update. Delegation can only narrow exact resource/action pairs and expiry. The full ancestor chain is rechecked at reservation and again at dispatch, so revoking a branch takes effect on the next request without a cache.
 - **The result.** 32 workers racing for 21 remaining units: exactly **21 completed and 11 were denied**, ending at the 24-unit limit. A stolen token replayed without its holder key, a production deploy and a broader delegation were all denied. After a branch was revoked, an unrelated worker still finished. Retries, unknown outcomes, operator approvals and owner deprovisioning have explicit, tested semantics. See [the threat model](docs/threat-model.md).
-- **The evidence.** Decisions are hash-linked and receipts are Ed25519-signed. They are checked offline by a Python verifier and a separate Rust implementation that must reach the same verdicts. There are 310 tests, including property-based ones, and CI runs them on Windows and Linux.
-- **The boundary.** This is a local research system. The agents in the story are scripted and the upstream service is synthetic. Recorded runs with a real model are in [docs/live-runs](docs/live-runs/README.md). Read [what is real](#what-is-real) before drawing conclusions.
+- **The evidence.** Decisions are hash-linked and receipts are Ed25519-signed. They are checked offline by a Python verifier and a separate Rust implementation that must reach the same verdicts. There are 345 tests, including property-based ones, and CI runs them on Windows and Linux.
+- **The boundary.** This is a local research system. The agents in the story are scripted and the upstream service is synthetic, except for an optional adapter that files real GitHub issues. Recorded runs with a real model are in [docs/live-runs](docs/live-runs/README.md). Read [what is real](#what-is-real) before drawing conclusions.
 
 Reproduce the headline numbers: `python scripts/run_scenario.py` (after the install below).
 
@@ -27,6 +27,8 @@ This is an independent portfolio project, not affiliated with or endorsed by 1Pa
 Requires Python 3.11+; no Node build, cloud account, or API key is required.
 
 ```powershell
+git clone https://github.com/thomasafroo/Agent-Passport.git
+cd Agent-Passport
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.lock -e ".[dev]"
 .venv\Scripts\python -m agent_passport
@@ -35,6 +37,8 @@ python -m venv .venv
 macOS/Linux:
 
 ```bash
+git clone https://github.com/thomasafroo/Agent-Passport.git
+cd Agent-Passport
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.lock -e '.[dev]'
 .venv/bin/python -m agent_passport
@@ -79,19 +83,21 @@ In [recorded runs with Claude Sonnet 5.5](docs/live-runs/README.md), the model d
 | Shared budget | SQLite `BEGIN IMMEDIATE` plus a conditional root-pool update and database invariant |
 | Revocation | Full ancestor chain checked at reservation and again at dispatch; no cache |
 | Retry handling | Unique `(grant_id, request_key)` bound to the canonical operation digest |
-| Failure accounting | Known pre-effect failures refunded; unknown outcomes retain the reserved unit until a signed operator reconciliation, stated by hand or looked up in the fixture upstream's effect record |
+| Failure accounting | Known pre-effect failures refunded; unknown outcomes retain the reserved unit until a signed operator reconciliation, stated by hand or looked up in the upstream's effect record (the fixture's, or GitHub's issue list, which can only confirm an effect) |
 | Persistence | SQLite WAL plus a persistent issuer key; works across local worker processes |
 | Credential isolation | Executor resolves credentials; passports, browser state, and receipts contain no credential values |
 | Evidence | Hash-linked decision events and independently verifiable signed operation receipts |
-| 1Password | Optional real `op read` credential resolver connected to an authenticated synthetic service |
+| 1Password | Optional real credential resolver, through the `op` CLI or the 1Password SDK, for the fixture service's keys and the GitHub token |
 | Real upstream | Optional GitHub adapter: `patch.propose` files an issue with fixed text in one operator-configured repository, with a token from 1Password. GitHub cannot fence an ID, so lookups confirm effects but never refund them. See [github-upstream.md](docs/github-upstream.md) |
 | Live model | Optional MCP adapter: a real model acts through a passport it never holds; the gateway decides every call |
 
 Operator approvals gate staging config writes before dispatch, and owner deprovisioning voids existing grants online; both produce signed statements checked by the Python and Rust evidence verifiers.
 
-The story's agents are **scripted**, and logs/code/patches come from a **synthetic service** unless the GitHub adapter is configured. A connected live model is real, but its tools reach only that same synthetic service. No production deployment exists. The malicious tool output is a deterministic adversarial fixture, not an evaluation of an LLM's prompt-injection resistance. The test demonstrates what the authorization boundary does when a worker makes an unauthorized request.
+The story's agents are **scripted**, and logs/code/patches come from a **synthetic service** unless the GitHub adapter is configured. A connected live model is real, but its tools reach only the same services as the scripted agents. No production deployment exists. The malicious tool output is a deterministic adversarial fixture, not an evaluation of an LLM's prompt-injection resistance. The test demonstrates what the authorization boundary does when a worker makes an unauthorized request.
 
 ## Verify the claims
+
+The commands below use `python` from the activated virtual environment: `.venv\Scripts\Activate.ps1` on Windows, `source .venv/bin/activate` on macOS/Linux.
 
 ```powershell
 python -m pytest -q
@@ -99,14 +105,30 @@ python scripts/benchmark.py
 python scripts/run_scenario.py
 ```
 
+Static checks and the Rust verifier's tests, as CI runs them (Rust needs a stable toolchain):
+
+```powershell
+python -m ruff check .
+python -m pyright
+cd verifier-rs; cargo test --locked; cd ..
+```
+
+For longer property-based runs, set `HYPOTHESIS_PROFILE=fuzz` (PowerShell: `$env:HYPOTHESIS_PROFILE = 'fuzz'`) before `python -m pytest -q tests/test_properties.py`. See [security testing](docs/security-testing.md).
+
 The benchmark races 100 agents against a 10-unit budget and asserts exactly 10 completions and 90 budget denials. It also runs a deliberately unsafe check-then-act implementation with a barrier that forces the race, measures 200 sequential authorization/reservation transactions, and measures 30 revoke-then-deny round trips. Results are written to `artifacts/benchmark.json`.
 
-Tests cover multi-thread and multi-process contention, concurrent retries, resource/action pair isolation, altered signatures, foreign issuers, stale grants, revoked ancestors, queue expiry, crash persistence, refunds, unknown effects, signed receipts, secret-safe errors, and HTTP boundary checks. GitHub Actions runs the suite on Windows and Linux with Python 3.11 and 3.13; all four jobs passed on `main` on 2026-10-31. The suite includes a benchmark step whose timings on shared CI runners are not comparable to the local results.
+Tests cover multi-thread and multi-process contention, concurrent retries, resource/action pair isolation, altered signatures, foreign issuers, stale grants, revoked ancestors, queue expiry, crash persistence, refunds, unknown effects, signed receipts, secret-safe errors, and HTTP boundary checks. GitHub Actions runs the suite on Windows and Linux with Python 3.11 and 3.13, plus static checks, the Rust verifier, a dependency audit and CodeQL; all passed on `main` on 2026-11-02. The suite includes a benchmark step whose timings on shared CI runners are not comparable to the local results.
 
 For offline evidence verification, obtain the issuer public key through a trusted channel (the local issuer is `.state/issuer.key`; **never share the private key**). The scenario runner writes a separate public-key file:
 
 ```powershell
 python scripts/verify_evidence.py artifacts/scenario-evidence.json --public-key-file artifacts/issuer-public-key.txt
+```
+
+Committed evidence from recorded runs verifies the same way, for example the live GitHub check:
+
+```powershell
+python scripts/verify_evidence.py docs/github-runs/run1-evidence.json --public-key-file docs/github-runs/run1-issuer-public-key.txt
 ```
 
 Pin the public key independently before accepting evidence from someone else. A key embedded in the same untrusted export is not a trust anchor. Receipt signatures establish what the issuer signed, not whether an external executor reported reality truthfully.
@@ -132,8 +154,9 @@ Run these from the repository root unless noted. State-management scripts read `
 | Sign a checkpoint and append it to a witness file | `python scripts/checkpoint.py [--run RUN_ID] [--witness PATH]` |
 | Verify exported evidence | `python scripts/verify_evidence.py EVIDENCE.json --public-key-file KEY.txt [--checkpoints WITNESS.jsonl]` |
 | Re-run the simulated revocation experiment | `python scripts/revocation_experiment.py` |
-| Record a live-model session against a running gateway | `python scripts/record_live_run.py --name NAME [--require-mode synthetic\|1password-cli]` |
+| Record a live-model session against a running gateway | `python scripts/record_live_run.py --name NAME [--require-mode synthetic\|1password-cli\|1password-sdk]` |
 | Check the live 1Password path | `python scripts/check_1password.py` (see [1Password setup](docs/1password.md)) |
+| Check the live GitHub upstream (files two real issues) | `python scripts/check_github.py` (see [GitHub upstream](docs/github-upstream.md)) |
 | List pending approvals | `python scripts/approve.py` |
 | Approve or deny one operation | `python scripts/approve.py OPERATION_ID --decision approve\|deny --reason "Staging change reviewed against the ticket."` |
 | List or provision accountable owners | `python scripts/owners.py list` or `python scripts/owners.py add USER_NAME --display-name NAME` |
@@ -197,8 +220,9 @@ flowchart LR
     A & B & C & D & L --> V[Gateway: verify chain + reserve unit]
     V --> DB[(SQLite shared root pool)]
     V --> E[Executor: revalidate at dispatch]
-    P[1Password CLI or synthetic provider] --> E
+    P[1Password CLI/SDK or synthetic provider] --> E
     E --> S[Authenticated fixture service]
+    E -.-> GH[GitHub issues, optional]
     E --> R[Signed receipt + settlement]
 ```
 
@@ -212,11 +236,14 @@ agent_passport/broker.py   Credential providers and controlled executor
 agent_passport/demo.py     Reproducible incident and concurrent fork scenarios
 agent_passport/server.py   Local console and token-plus-proof agent API
 agent_passport/mcp_server.py  MCP adapter for a live model; holds passports, never returns them
+agent_passport/github.py   Optional real upstream: GitHub issues, no fencing, lookup by marker
+agent_passport/scim.py     SCIM-shaped owner provisioning subset behind the console session
 web/                      Responsive console; plain JS, CSS, no external assets
 tests/                    Security invariants and HTTP integration tests
 scripts/                  Benchmarks, scenario runner, offline verifier, reconciliation, checkpoints,
-                          revocation experiment, live-run recorder, 1Password check
-docs/                     Design, threat model, demo script, integration setup
+                          approvals, owners, revocation experiment, live-run recorder, 1Password and GitHub checks
+verifier-rs/              Independent Rust evidence verifier (same verdicts as the Python one)
+docs/                     Design, threat model, demo script, integration setup, recorded runs
 ```
 
 ## Boundaries and next research questions
@@ -225,4 +252,4 @@ Owner records and the SCIM-shaped routes do not verify human identity or integra
 
 The current model counts fixed-cost operations, not dollars or actual provider usage. It shares a root pool rather than allocating child sub-budgets. Holder binding stops a copied token from being used, but not a compromised holder: a process that can read the holder's memory can take its key. Revocation linearizes at the database transaction; already dispatched work may still finish. Unknown or crash-interrupted operations deliberately retain capacity until a local operator reconciles them with a signed, recorded decision (`python scripts/reconcile.py`), stated by hand or looked up in the fixture upstream's effect record (`--lookup`). Nothing settles them automatically, and a reconciliation receipt attests the operator's statement or the upstream's report, not independent proof of the effect.
 
-[A simulated experiment](docs/revocation-experiment.md) measures what a caching edge would cost under network partitions. A fail-open cache let a revoked branch keep working for the whole partition. Bounded staleness with budget leases capped that delay and never overspent, but the cap depends on the edge's clock. The shipped gateway still has no cache. Other extensions include per-agent signing keys, data-dependency quarantine, trusted resource-version approvals, idempotency and effect lookup against a real upstream rather than the fixture, and checkpoints published to an independent transparency log. None is represented as implemented here; the shipped checkpoints rely on the operator keeping a witness copy.
+[A simulated experiment](docs/revocation-experiment.md) measures what a caching edge would cost under network partitions. A fail-open cache let a revoked branch keep working for the whole partition. Bounded staleness with budget leases capped that delay and never overspent, but the cap depends on the edge's clock. The shipped gateway still has no cache. Other extensions include per-agent signing keys, data-dependency quarantine, trusted resource-version approvals, a real upstream with idempotency keys and fencing (the GitHub adapter has neither), and checkpoints published to an independent transparency log. None is represented as implemented here; the shipped checkpoints rely on the operator keeping a witness copy.

@@ -19,7 +19,7 @@ This is a local security research project, not a marketing-only mockup. Preserve
 - Approve or deny high-risk operations: `python scripts/approve.py` lists them; add `OPERATION_ID --decision approve|deny --reason "..."`
 - Manage accountable owners: `python scripts/owners.py list|add USER_NAME --display-name NAME|deactivate OWNER|reactivate OWNER`; the console also serves a SCIM-shaped subset at `/scim/v2/Users` (console session only)
 - Revocation experiment (simulation): `python scripts/revocation_experiment.py`
-- Record a live-model run (needs a running gateway and the `claude` CLI; costs API usage): `python scripts/record_live_run.py --name NAME [--require-mode synthetic|1password-cli]`
+- Record a live-model run (needs a running gateway and the `claude` CLI; costs API usage): `python scripts/record_live_run.py --name NAME [--require-mode synthetic|1password-cli|1password-sdk]`
 - Live 1Password check (opt-in, real lookup): `python scripts/check_1password.py`; see `docs/1password.md`
 - Live GitHub upstream check (opt-in; files two real issues in `PASSPORT_GITHUB_REPO`): `python scripts/check_github.py`; see `docs/github-upstream.md`
 - Generate an issuer key for `PASSPORT_ISSUER_KEY_REFERENCE` (prints it once, writes nothing): `python scripts/generate_issuer_key.py`
