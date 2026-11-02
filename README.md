@@ -84,11 +84,12 @@ In [recorded runs with Claude Sonnet 5.5](docs/live-runs/README.md), the model d
 | Credential isolation | Executor resolves credentials; passports, browser state, and receipts contain no credential values |
 | Evidence | Hash-linked decision events and independently verifiable signed operation receipts |
 | 1Password | Optional real `op read` credential resolver connected to an authenticated synthetic service |
+| Real upstream | Optional GitHub adapter: `patch.propose` files an issue with fixed text in one operator-configured repository, with a token from 1Password. GitHub cannot fence an ID, so lookups confirm effects but never refund them. See [github-upstream.md](docs/github-upstream.md) |
 | Live model | Optional MCP adapter: a real model acts through a passport it never holds; the gateway decides every call |
 
 Operator approvals gate staging config writes before dispatch, and owner deprovisioning voids existing grants online; both produce signed statements checked by the Python and Rust evidence verifiers.
 
-The story's agents are **scripted**, and logs/code/patches come from a **synthetic service**. A connected live model is real, but its tools reach only that same synthetic service. No production deployment exists. The malicious tool output is a deterministic adversarial fixture, not an evaluation of an LLM's prompt-injection resistance. The test demonstrates what the authorization boundary does when a worker makes an unauthorized request.
+The story's agents are **scripted**, and logs/code/patches come from a **synthetic service** unless the GitHub adapter is configured. A connected live model is real, but its tools reach only that same synthetic service. No production deployment exists. The malicious tool output is a deterministic adversarial fixture, not an evaluation of an LLM's prompt-injection resistance. The test demonstrates what the authorization boundary does when a worker makes an unauthorized request.
 
 ## Verify the claims
 
@@ -220,7 +221,7 @@ docs/                     Design, threat model, demo script, integration setup
 
 ## Boundaries and next research questions
 
-Owner records and the SCIM-shaped routes do not verify human identity or integrate an identity provider; the 1Password SDK and issuer-key lookup remain mocked-only, and approvals have not been exercised with a live model.
+Owner records and the SCIM-shaped routes do not verify human identity or integrate an identity provider; issuer-key lookup remains mocked-only, the 1Password SDK has one live run (resolving the GitHub token, [github-upstream.md](docs/github-upstream.md#verification-status)) with its failure paths mocked, and approvals have not been exercised with a live model.
 
 The current model counts fixed-cost operations, not dollars or actual provider usage. It shares a root pool rather than allocating child sub-budgets. Holder binding stops a copied token from being used, but not a compromised holder: a process that can read the holder's memory can take its key. Revocation linearizes at the database transaction; already dispatched work may still finish. Unknown or crash-interrupted operations deliberately retain capacity until a local operator reconciles them with a signed, recorded decision (`python scripts/reconcile.py`), stated by hand or looked up in the fixture upstream's effect record (`--lookup`). Nothing settles them automatically, and a reconciliation receipt attests the operator's statement or the upstream's report, not independent proof of the effect.
 

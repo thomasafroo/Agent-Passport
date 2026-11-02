@@ -208,7 +208,7 @@ def create_app(directory=None):
     def evidence(request: Request):
         console(request)
         with demo.lock:
-            return {**passport.evidence(demo.run_id), "metrics": demo.metrics, "credential_mode": executor.provider.mode}
+            return {**passport.evidence(demo.run_id), "metrics": demo.metrics, "credential_mode": executor.provider.mode, "upstream": executor.upstream}
 
     @app.post("/api/checkpoint")
     def checkpoint(request: Request):
@@ -232,7 +232,7 @@ def create_app(directory=None):
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "credential_mode": executor.provider.mode, "issuer_key": passport.issuer_key_source}
+        return {"status": "ok", "credential_mode": executor.provider.mode, "upstream": executor.upstream, "issuer_key": passport.issuer_key_source}
 
     web = Path(__file__).resolve().parent.parent / "web"
 

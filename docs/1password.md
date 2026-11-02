@@ -70,7 +70,7 @@ PASSPORT_OP_PROVIDER=sdk   the official 1Password Python SDK, authenticated with
 
 Any other value stops startup. `/health`, `/api/evidence`, and `check_1password.py` report the mode as `1password-cli` or `1password-sdk`.
 
-**Verification status of the SDK path: mocked tests only; not yet run against a live account.** The CLI live runs above say nothing about it.
+**Verification status of the SDK path:** the failure and redaction behavior is covered by mocked tests. **Live, 2026-11-02:** `scripts/check_github.py` ran with `PASSPORT_OP_PROVIDER=sdk` and a read-only service account limited to the test vault; the SDK resolved the GitHub token reference for each GitHub operation and the check passed (see [github-upstream.md](github-upstream.md#verification-status)). That run exercised SDK success, not its failure paths, and did not load the issuer key through the SDK.
 
 The SDK is an optional extra pinned to `onepassword-sdk==0.4.2` (also in the dev extra and `requirements.lock`; it installs from a prebuilt wheel on Windows x64, macOS, and Linux x64/arm64, and pulls in nothing beyond pydantic):
 

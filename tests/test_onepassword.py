@@ -426,7 +426,7 @@ def test_server_uses_issuer_key_from_sdk_and_reports_its_source(tmp_path, monkey
     app = create_app(state)
     client = TestClient(app)
     health = client.get("/health").json()
-    assert health == {"status": "ok", "credential_mode": "synthetic", "issuer_key": "1password-sdk"}
+    assert health == {"status": "ok", "credential_mode": "synthetic", "upstream": "fixture", "issuer_key": "1password-sdk"}
     assert app.state.passport.public_key == Passport(tmp_path / "other", issuer_key=key).public_key
     assert not (state / "issuer.key").exists() and raw not in state_bytes(state)
     assert b64(raw) not in client.get("/health").text
