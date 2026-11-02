@@ -198,7 +198,7 @@ This is a demo subset in SCIM's shape, not a conformant SCIM server: no other at
 
 ## Credential boundary
 
-The allowed operation catalog maps fixed resource/action pairs to a synthetic service; `config.write` on `staging/checkout` additionally needs an operator approval. The provider is configured by the server operator, never by an agent. The 1Password provider calls an absolute `op` executable discovered from the operator's PATH with a fixed argument vector and no shell. It captures the secret in process memory and never forwards CLI stderr, stdout, or exception output to the agent. A synthetic service checks the configured key's SHA-256 digest and returns known fixture data.
+The allowed operation catalog maps fixed resource/action pairs to a synthetic service; `config.write` on `staging/checkout` additionally needs an operator approval. When the operator configures the GitHub adapter, `patch.propose` on `repo/checkout` goes to GitHub instead (see [above](#a-real-upstream-without-a-fence)). The provider is configured by the server operator, never by an agent. The 1Password provider calls an absolute `op` executable discovered from the operator's PATH with a fixed argument vector and no shell. It captures the secret in process memory and never forwards CLI stderr, stdout, or exception output to the agent. A synthetic service checks the configured key's SHA-256 digest and returns known fixture data.
 
 This validates credential separation and retrieval, not a production service integration. Python strings cannot be reliably zeroized. The host OS, PATH, CLI, issuer key, database, and trusted executor process are all inside the trust boundary.
 

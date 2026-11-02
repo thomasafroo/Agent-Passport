@@ -24,7 +24,7 @@ These are not authenticated: event `seq`, the `run` counters (`budget`, `spent`,
 
 ## Running
 
-```
+```text
 python -m pytest -q                                   # includes the properties at the default profile
 HYPOTHESIS_PROFILE=fuzz python -m pytest -q tests/test_properties.py   # 50x the examples
 python scripts/fuzz.py all --examples 20000            # verifier, token and proof targets

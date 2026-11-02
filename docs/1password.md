@@ -1,8 +1,8 @@
 # Exercise the real 1Password credential path
 
-The default uses a clearly labeled synthetic key. The optional provider resolves an operator-configured `op://` reference using the installed 1Password CLI or, optionally, the official 1Password Python SDK with a service account (see [Choose a backend](#choose-a-backend-cli-or-sdk)). Operations can each have their own reference, and the issuer signing key can also come from 1Password. The executor uses the resolved credential to authenticate to the in-process synthetic staging service. No secret is returned to the browser or an agent.
+The default uses a clearly labeled synthetic key. The optional provider resolves an operator-configured `op://` reference using the installed 1Password CLI or, optionally, the official 1Password Python SDK with a service account (see [Choose a backend](#choose-a-backend-cli-or-sdk)). Operations can each have their own reference, and the issuer signing key can also come from 1Password. The executor uses the resolved credential to authenticate to the in-process synthetic staging service, or, for the optional [GitHub upstream](github-upstream.md), to GitHub. No secret is returned to the browser or an agent.
 
-This is a real credential lookup paired with a fixture service, not a production integration or an official 1Password product.
+This is a real credential lookup paired with a fixture service (and optionally one real GitHub repository), not a production integration or an official 1Password product.
 
 ## Setup
 
