@@ -1,6 +1,18 @@
 # Agent Passport
 
+[![Security invariants](https://github.com/thomasafroo/Agent-Passport/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/thomasafroo/Agent-Passport/actions/workflows/test.yml)
+
 **Agents can multiply. Their authority cannot.**
+
+## In 60 seconds
+
+- **The problem.** When an agent delegates to sub-agents, a naive gateway copies the remaining budget and permissions into each child, or checks the budget before it spends. Either way, concurrent forks can overspend. In this repo's deliberately unsafe check-then-act model, 32 workers sharing a 10-unit budget spent all 32 units.
+- **The fix.** Every descendant draws from its root's single budget row, inside one SQLite `BEGIN IMMEDIATE` transaction with a conditional update. Delegation can only narrow exact resource/action pairs and expiry. The full ancestor chain is rechecked at reservation and again at dispatch, so revoking a branch takes effect on the next request without a cache.
+- **The result.** 32 workers racing for 21 remaining units: exactly **21 completed and 11 were denied**, ending at the 24-unit limit. A stolen token replayed without its holder key, a production deploy and a broader delegation were all denied. After a branch was revoked, an unrelated worker still finished. Retries, unknown outcomes, operator approvals and owner deprovisioning have explicit, tested semantics. See [the threat model](docs/threat-model.md).
+- **The evidence.** Decisions are hash-linked and receipts are Ed25519-signed. They are checked offline by a Python verifier and a separate Rust implementation that must reach the same verdicts. There are 310 tests, including property-based ones, and CI runs them on Windows and Linux.
+- **The boundary.** This is a local research system. The agents in the story are scripted and the upstream service is synthetic. Recorded runs with a real model are in [docs/live-runs](docs/live-runs/README.md). Read [what is real](#what-is-real) before drawing conclusions.
+
+Reproduce the headline numbers: `python scripts/run_scenario.py` (after the install below).
 
 Agent Passport is a local security research demo for delegated AI workflows. A coordinator investigates a staging incident, delegates narrower passports to workers, and shares one operation budget across the entire tree. A compromised worker attempts a production action. The gateway rejects it, revokes the branch, cancels queued work, and lets an unrelated worker finish.
 
@@ -16,7 +28,7 @@ Requires Python 3.11+; no Node build, cloud account, or API key is required.
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\python -m pip install -e ".[dev]"
+.venv\Scripts\python -m pip install -r requirements.lock -e ".[dev]"
 .venv\Scripts\python -m agent_passport
 ```
 
@@ -24,7 +36,7 @@ macOS/Linux:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m pip install -r requirements.lock -e '.[dev]'
 .venv/bin/python -m agent_passport
 ```
 
