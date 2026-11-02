@@ -515,7 +515,9 @@ function render() {
   if (!state.grants.some(g => g.id === selected)) selected = state.grants[0].id;
   const s = stage(), copy = STEP_COPY[s];
   $("run-id").textContent = state.run.id;
-  $("provider").textContent = state.credential_mode === "synthetic" ? "Synthetic credentials" : "1Password CLI, fixture service";
+  const credentials = {synthetic: "Synthetic credentials", "1password-cli": "1Password CLI", "1password-sdk": "1Password SDK"}[state.credential_mode] || state.credential_mode;
+  const upstream = (state.upstream || "fixture").startsWith("github:") ? `GitHub issues in ${state.upstream.slice(7)}` : "fixture service";
+  $("provider").textContent = state.credential_mode === "synthetic" ? credentials : `${credentials}, ${upstream}`;
   $("step-label").textContent = copy.label;
   $("step-label").classList.toggle("alert", Boolean(copy.alert));
   $("narrative").textContent = state.message;

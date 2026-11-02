@@ -96,7 +96,7 @@ class Demo:
         with self.lock:
             return {**self.passport.snapshot(self.run_id), "phase": self.phase,
                     "message": self.message, "metrics": self.metrics,
-                    "credential_mode": self.executor.provider.mode, "scripted": True,
+                    "credential_mode": self.executor.provider.mode, "upstream": self.executor.upstream, "scripted": True,
                     "live_grant": self.live["grant"]["id"] if self.live else None,
                     "owners": self.passport.owners()}
 

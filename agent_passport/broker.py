@@ -17,6 +17,7 @@ import time
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from .core import CATALOG, Denied, Passport, canonical
+from .github import PAIR as GITHUB_PAIR, EffectUnfenced, GitHubIssues, UpstreamRejected, check_repo
 
 
 # What an agent is told about an operation waiting on, or ended by, an operator decision.
@@ -430,13 +431,26 @@ class Executor:
         self.service = service or FixtureService(hashlib.sha256(DemoCredentials().resolve().encode()).hexdigest(),
                                                  EffectLog(passport.directory / "fixture-effects.db"))
 
+    @property
+    def upstream(self):
+        return getattr(self.service, "label", "fixture")
+
     @classmethod
     def from_environment(cls, passport, backend=None, environ=None):
         """Operator configuration only: PASSPORT_OP_REFERENCE (one reference for every operation)
         or PASSPORT_OP_REFERENCES (a JSON file mapping each catalog pair to its own reference),
-        resolved through the backend chosen by PASSPORT_OP_PROVIDER. Raises ValueError if malformed."""
+        resolved through the backend chosen by PASSPORT_OP_PROVIDER. Raises ValueError if malformed.
+
+        PASSPORT_GITHUB_REPO=OWNER/REPOSITORY sends patch.propose on repo/checkout to a real GitHub
+        repository; the mapped reference for that pair must hold a GitHub token. It requires the
+        map, so the fixture key and the GitHub token are never the same reference."""
         environ = os.environ if environ is None else environ
         single, mapped = environ.get("PASSPORT_OP_REFERENCE"), environ.get("PASSPORT_OP_REFERENCES")
+        repo = environ.get("PASSPORT_GITHUB_REPO")
+        if repo is not None:
+            check_repo(repo)
+            if not mapped:
+                raise ValueError("PASSPORT_GITHUB_REPO needs PASSPORT_OP_REFERENCES, so the GitHub token has its own reference")
         if not single and not mapped:
             return cls(passport)
         if single and mapped:
@@ -450,10 +464,14 @@ class Executor:
         else:
             references, digests = load_reference_map(mapped)
             expected = {pair: digest or default for pair, digest in digests.items()}
+            if repo is not None:
+                # GitHub authenticates that pair's token itself; the fixture never sees it.
+                del expected[GITHUB_PAIR]
             if not all(_hex_digest(digest) for digest in expected.values()):
                 raise ValueError("Set PASSPORT_FIXTURE_KEY_SHA256, or a sha256 for every mapped pair")
         provider = OnePasswordCredentials(references, backend or backend_from_environment(environ))
-        return cls(passport, provider, FixtureService(expected, EffectLog(passport.directory / "fixture-effects.db")))
+        service = FixtureService(expected, EffectLog(passport.directory / "fixture-effects.db"))
+        return cls(passport, provider, GitHubIssues(repo, service) if repo is not None else service)
 
     def execute(self, token, resource, action, request_key, proof=None):
         op = self.passport.reserve(token, resource, action, request_key, proof)
@@ -495,6 +513,8 @@ class Executor:
             result = self.service.execute(credential, op["resource"], op["action"], op["id"])
         except CredentialUnavailable:
             return self.passport.settle(op["id"], "failed", {"error": "Fixture rejected the request before any effect."})
+        except UpstreamRejected:
+            return self.passport.settle(op["id"], "failed", {"error": "The upstream refused the request before any effect."})
         except Exception:
             return self.passport.settle(op["id"], "unknown", {"error": "Service outcome uncertain; reservation retained."})
         finally:
@@ -520,8 +540,12 @@ class Executor:
         try:
             credential = self.provider.resolve(pending["resource"], pending["action"])
             record = lookup(credential, oid, pending["resource"], pending["action"])
-        except CredentialUnavailable:
+        except (CredentialUnavailable, UpstreamRejected):
             raise Denied("LOOKUP_FAILED", "The upstream effect record could not be queried. The unit stays reserved.") from None
+        except EffectUnfenced:
+            # Absence without a fence is not evidence: a request still in transit could apply later.
+            raise Denied("LOOKUP_INCONCLUSIVE", "The upstream has no record of this operation but cannot fence its ID, "
+                                                "so it could still apply. The unit stays reserved; decide by hand.") from None
         finally:
             credential = None
         if record is None or record["state"] == "fenced":

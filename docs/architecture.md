@@ -116,6 +116,10 @@ Fencing is what makes a refund sound. "Not found" alone could be a request still
 
 The lookup is only as good as the upstream's guarantee that effects and records are atomic. The receipt attests what the upstream reported, not independent proof of the effect. A real adapter needs an upstream that offers both idempotency keys and fencing, or an equivalent cancel-if-not-started call.
 
+### A real upstream without a fence
+
+The optional GitHub adapter (`agent_passport/github.py`, see [github-upstream.md](github-upstream.md)) is a real upstream that offers neither. When `PASSPORT_GITHUB_REPO` is set, `patch.propose` on `repo/checkout` files an issue with fixed text and a marker naming the operation ID. Only answers that show GitHub never acted are refunded: `3xx`/`4xx`, DNS failure, a refused connection or a failed certificate check. A `5xx`, a timeout or an unreadable `201` is `unknown`. A lookup that finds the marker in an issue by the token's own account reconciles as completed. A lookup that finds nothing is `LOOKUP_INCONCLUSIVE` and changes nothing, because without a fence absence is not evidence. The operator decides by hand.
+
 ## Operator approval
 
 Some resource/action pairs are high-risk enough that a person should see each request before it runs. Which pairs is operator policy: `APPROVAL_REQUIRED` in `core.py`, or the `approval_required` argument when the server constructs the engine. No agent request, passport claim or delegation can add or remove an entry. The fixture marks one pair, `config.write` on `staging/checkout`, which the fixture service answers with a synthetic config change.

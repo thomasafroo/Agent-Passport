@@ -1,0 +1,292 @@
+{
+  "run": {
+    "id": "run_072c6e45ad81",
+    "budget": 3,
+    "spent": 2,
+    "reserved": 0,
+    "created": 1793602296.2126634
+  },
+  "grants": [
+    {
+      "v": 1,
+      "issuer": "eoTKHz4oGzQt7fXTr7Ul69d8AV3XBBAGPZCR1NbZv4k",
+      "id": "g_53a08379062a",
+      "run_id": "run_072c6e45ad81",
+      "parent": null,
+      "subject": "Coordinator",
+      "scopes": [
+        {
+          "action": "code.read",
+          "resource": "repo/checkout"
+        },
+        {
+          "action": "patch.propose",
+          "resource": "repo/checkout"
+        },
+        {
+          "action": "config.write",
+          "resource": "staging/checkout"
+        },
+        {
+          "action": "logs.read",
+          "resource": "staging/checkout"
+        }
+      ],
+      "expires": 1793605896.2126865,
+      "depth": 0,
+      "owner": "own_local",
+      "state": "active",
+      "directly_revoked": false
+    }
+  ],
+  "events": [
+    {
+      "seq": 1,
+      "hash": "e67b654a62d6e33b9a414da5e5b27eb3b0e03b3b1632969939714ca6ca584d77",
+      "detail": "One shared pool of 3 operation units, issued on behalf of Local operator.",
+      "grant_id": "g_53a08379062a",
+      "kind": "issued",
+      "owner_id": "own_local",
+      "previous": "0000000000000000000000000000000000000000000000000000000000000000",
+      "rule": "ROOT_AUTHORIZED",
+      "time": 1793602296.2127354
+    },
+    {
+      "seq": 2,
+      "hash": "d97b886d33b1c71faf10c1911f0426c69728edf1e95499ec7af5cb8ff9d27345",
+      "detail": "One unit reserved atomically.",
+      "grant_id": "g_53a08379062a",
+      "kind": "reserved",
+      "operation_id": "op_20d4fc5b0c124387950b77d210d186af",
+      "previous": "e67b654a62d6e33b9a414da5e5b27eb3b0e03b3b1632969939714ca6ca584d77",
+      "rule": "BUDGET_RESERVED",
+      "time": 1793602296.217653
+    },
+    {
+      "seq": 3,
+      "hash": "5e3b541c058aa9612c0d800c24a9d96824a5e9e3583f8ade2ecf835980c0f93b",
+      "detail": "One operation completed. One unit consumed.",
+      "grant_id": "g_53a08379062a",
+      "kind": "completed",
+      "operation_id": "op_20d4fc5b0c124387950b77d210d186af",
+      "previous": "d97b886d33b1c71faf10c1911f0426c69728edf1e95499ec7af5cb8ff9d27345",
+      "rule": "EXECUTED",
+      "time": 1793602298.9620144
+    },
+    {
+      "seq": 4,
+      "hash": "88278447ef8f71d478dc41a3daffc80a97c04a10ebf897ffa081ae3212f96f79",
+      "detail": "One unit reserved atomically.",
+      "grant_id": "g_53a08379062a",
+      "kind": "reserved",
+      "operation_id": "op_24d72b51a21d4eaab48791f66998d98b",
+      "previous": "5e3b541c058aa9612c0d800c24a9d96824a5e9e3583f8ade2ecf835980c0f93b",
+      "rule": "BUDGET_RESERVED",
+      "time": 1793602298.96774
+    },
+    {
+      "seq": 5,
+      "hash": "cb6a1e53dfdca02d62b6d836118db2031dc3ddb285155b25ce26823fb0def019",
+      "detail": "Outcome uncertain. Unit retained; automatic retry disabled.",
+      "grant_id": "g_53a08379062a",
+      "kind": "unknown",
+      "operation_id": "op_24d72b51a21d4eaab48791f66998d98b",
+      "previous": "88278447ef8f71d478dc41a3daffc80a97c04a10ebf897ffa081ae3212f96f79",
+      "rule": "OUTCOME_UNKNOWN",
+      "time": 1793602300.516335
+    },
+    {
+      "seq": 6,
+      "hash": "2e22c5899d494cc82688dd3f9ad0f3363ae9d8a488d932c27ce70504668c324a",
+      "detail": "Upstream effect lookup decided a unknown operation completed. Unit consumed. Basis: The upstream recorded this operation's effect under its operation ID.",
+      "grant_id": "g_53a08379062a",
+      "kind": "reconciled",
+      "operation_id": "op_24d72b51a21d4eaab48791f66998d98b",
+      "previous": "cb6a1e53dfdca02d62b6d836118db2031dc3ddb285155b25ce26823fb0def019",
+      "rule": "RECONCILED_COMPLETED",
+      "time": 1793602308.535363
+    },
+    {
+      "seq": 7,
+      "hash": "f94cc09215c92869ec2d8fdcf848b1fd541ed798462632eb3c7e9a563e9206ac",
+      "detail": "One unit reserved atomically.",
+      "grant_id": "g_53a08379062a",
+      "kind": "reserved",
+      "operation_id": "op_3705a33134c742bfa46a4e6775f91999",
+      "previous": "2e22c5899d494cc82688dd3f9ad0f3363ae9d8a488d932c27ce70504668c324a",
+      "rule": "BUDGET_RESERVED",
+      "time": 1793602308.5395236
+    },
+    {
+      "seq": 8,
+      "hash": "74c992723c8af6c27f876ed1c40624fa37bdda61f8a2aab574de876d3e6ea921",
+      "detail": "Outcome uncertain. Unit retained; automatic retry disabled.",
+      "grant_id": "g_53a08379062a",
+      "kind": "unknown",
+      "operation_id": "op_3705a33134c742bfa46a4e6775f91999",
+      "previous": "f94cc09215c92869ec2d8fdcf848b1fd541ed798462632eb3c7e9a563e9206ac",
+      "rule": "OUTCOME_UNKNOWN",
+      "time": 1793602308.5468462
+    },
+    {
+      "seq": 9,
+      "hash": "a1a2939049198fc70d91fddb858f21f7a5dcfdd75689229954d71443921ce995",
+      "detail": "Live check operator decided a unknown operation not executed. Unit returned to the shared pool. Basis: The live check settled this as unknown without sending any request to GitHub.",
+      "grant_id": "g_53a08379062a",
+      "kind": "reconciled",
+      "operation_id": "op_3705a33134c742bfa46a4e6775f91999",
+      "previous": "74c992723c8af6c27f876ed1c40624fa37bdda61f8a2aab574de876d3e6ea921",
+      "rule": "RECONCILED_NOT_EXECUTED",
+      "time": 1793602309.9252434
+    }
+  ],
+  "public_key": "eoTKHz4oGzQt7fXTr7Ul69d8AV3XBBAGPZCR1NbZv4k",
+  "policy": "passport/1",
+  "server_time": 1793602309.9319518,
+  "owner": {
+    "id": "own_local",
+    "user_name": "local-operator",
+    "display_name": "Local operator",
+    "external_id": null,
+    "active": true,
+    "epoch": 0,
+    "created": 1793602296.2108045,
+    "updated": 1793602296.2108045,
+    "deprovisioned_at": null
+  },
+  "receipts": [
+    {
+      "body": {
+        "action": "patch.propose",
+        "chain": [
+          "g_53a08379062a"
+        ],
+        "cost": 1,
+        "grant_id": "g_53a08379062a",
+        "operation_id": "op_20d4fc5b0c124387950b77d210d186af",
+        "outcome": "completed",
+        "owner": "own_local",
+        "policy": "passport/1",
+        "request_digest": "b71d2e96835adeb685803970e4f5d518c405f909b3f17fb37f30a26ecb247db0",
+        "resource": "repo/checkout",
+        "result_digest": "ee02ed8936c7e306207783e91390a6e407d6f0b939ec2bb1d6bb3c04364d12c4",
+        "run_id": "run_072c6e45ad81",
+        "time": 1793602298.961876
+      },
+      "signature": "LASLQhK9qxhUGUE1_BXleyC0s3M4peVXADG6m0ZtoeBOa5Bb_Acjm1PjdGUdgZ7nIMcxyRi75VTlqZkwuQDgAg"
+    },
+    {
+      "body": {
+        "action": "patch.propose",
+        "chain": [
+          "g_53a08379062a"
+        ],
+        "cost": 1,
+        "grant_id": "g_53a08379062a",
+        "operation_id": "op_24d72b51a21d4eaab48791f66998d98b",
+        "outcome": "unknown",
+        "owner": "own_local",
+        "policy": "passport/1",
+        "request_digest": "b71d2e96835adeb685803970e4f5d518c405f909b3f17fb37f30a26ecb247db0",
+        "resource": "repo/checkout",
+        "result_digest": "a48ce00c468864669bc4821ffc065540f637f62ec3b20ddfa9aeb531d97d7bd2",
+        "run_id": "run_072c6e45ad81",
+        "time": 1793602300.5160787
+      },
+      "signature": "Bp02eNYp0maM_M7ZKD2m-WUM8uEcQVVXpFdkhofGh5Ja3nbZD8evuznYXSMwiGVN35nMkTly3-aBjhaFAkJxCQ"
+    },
+    {
+      "body": {
+        "action": "patch.propose",
+        "chain": [
+          "g_53a08379062a"
+        ],
+        "cost": 1,
+        "grant_id": "g_53a08379062a",
+        "operation_id": "op_3705a33134c742bfa46a4e6775f91999",
+        "outcome": "unknown",
+        "owner": "own_local",
+        "policy": "passport/1",
+        "request_digest": "b71d2e96835adeb685803970e4f5d518c405f909b3f17fb37f30a26ecb247db0",
+        "resource": "repo/checkout",
+        "result_digest": "a48ce00c468864669bc4821ffc065540f637f62ec3b20ddfa9aeb531d97d7bd2",
+        "run_id": "run_072c6e45ad81",
+        "time": 1793602308.546731
+      },
+      "signature": "GBCjeYNpGrla90oyIfGhczVYgBe0Sv8zWLc-AZuXbyC-RraU-dtS0777oVp1g7YQAzGUDOnHGAXBJvTskU5VAA"
+    }
+  ],
+  "reconciliations": [
+    {
+      "body": {
+        "action": "patch.propose",
+        "basis": {
+          "found": true,
+          "result_digest": "d6311cf1b77a6406e6df63e60c1790b98015696ea617bf21408b60c1991853a1",
+          "source": "upstream_effect_record"
+        },
+        "chain": [
+          "g_53a08379062a"
+        ],
+        "cost": 1,
+        "decided_by": "Upstream effect lookup",
+        "grant_id": "g_53a08379062a",
+        "operation_id": "op_24d72b51a21d4eaab48791f66998d98b",
+        "outcome": "reconciled_completed",
+        "owner": "own_local",
+        "policy": "passport/1",
+        "previous_state": "unknown",
+        "reason": "The upstream recorded this operation's effect under its operation ID.",
+        "request_digest": "b71d2e96835adeb685803970e4f5d518c405f909b3f17fb37f30a26ecb247db0",
+        "resource": "repo/checkout",
+        "run_id": "run_072c6e45ad81",
+        "time": 1793602308.5351434,
+        "type": "reconciliation"
+      },
+      "signature": "jw0y6wrj3OJ-bd0QdhM1LccX5cA_164WHOfCofIHQOOjPvPsxk_RNlJvo8136uzokm0OhVoeEziA6zmRlcsiBg"
+    },
+    {
+      "body": {
+        "action": "patch.propose",
+        "chain": [
+          "g_53a08379062a"
+        ],
+        "cost": 0,
+        "decided_by": "Live check operator",
+        "grant_id": "g_53a08379062a",
+        "operation_id": "op_3705a33134c742bfa46a4e6775f91999",
+        "outcome": "reconciled_not_executed",
+        "owner": "own_local",
+        "policy": "passport/1",
+        "previous_state": "unknown",
+        "reason": "The live check settled this as unknown without sending any request to GitHub.",
+        "request_digest": "b71d2e96835adeb685803970e4f5d518c405f909b3f17fb37f30a26ecb247db0",
+        "resource": "repo/checkout",
+        "run_id": "run_072c6e45ad81",
+        "time": 1793602309.925067,
+        "type": "reconciliation"
+      },
+      "signature": "QD_SAyIzTOblYMvl3_pJRsp1urOYLbwm_SHXvBaR60aOv55k8GyLpieafIdFId6YyCb5jUvythY0-PEIvZRPBw"
+    }
+  ],
+  "approvals": [],
+  "lifecycle": [
+    {
+      "body": {
+        "active": true,
+        "actor": "Default owner, created on demand",
+        "change": "provisioned",
+        "display_name": "Local operator",
+        "epoch": 0,
+        "external_id": null,
+        "owner_id": "own_local",
+        "policy": "passport/1",
+        "runs": [],
+        "time": 1793602296.2108662,
+        "type": "lifecycle",
+        "user_name": "local-operator"
+      },
+      "signature": "5ZNPYFMmDA43ynXWm7PLYkxyN7aa97-u0KpnoYAQya7WlTiVYSsVDU_leb87eegComL512OZ_GigGMCJ98z5Cw"
+    }
+  ]
+}
