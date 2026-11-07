@@ -21,12 +21,13 @@ from agent_passport.core import Passport
 LOG_READ = ("staging/checkout", "logs.read")
 SCOPE = [{"resource": LOG_READ[0], "action": LOG_READ[1]}]
 
-# Waits for "go" on stdin so every worker starts together, then reserves in a tight loop, with no
-# pause, until denied. Prints "ready" once reservations flow.
+# Reports "loaded", waits for "go" on stdin so every worker starts together, then reserves in a
+# tight loop, with no pause, until denied, and prints the denial rule.
 WORKER = """
 import sys
 from agent_passport.core import Denied, Passport
 engine, token, name = Passport(sys.argv[1]), sys.argv[2], sys.argv[3]
+print("loaded", flush=True)
 sys.stdin.readline()
 for n in range(100000):
     try:
@@ -34,8 +35,6 @@ for n in range(100000):
     except Denied as e:
         print(e.rule, flush=True)
         break
-    if n == 2:
-        print("ready", flush=True)
 """
 
 HOLDER = """
@@ -55,13 +54,20 @@ def start_workers(engine, root, count):
     workers = [engine.delegate(root["token"], f"Worker {i}", SCOPE, engine.clock() + 600) for i in range(count)]
     procs = [subprocess.Popen([sys.executable, "-c", WORKER, str(engine.directory), w["token"], f"w{i}"],
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) for i, w in enumerate(workers)]
-    # Release all workers at once, so slow interpreter start-up cannot let early ones drain the pool.
+    # Release all workers only once every one has loaded, so slow interpreter start-up cannot let
+    # early ones drain the pool before the last one reserves.
+    for p in procs:
+        assert p.stdout is not None and p.stdout.readline().strip() == "loaded"
     for p in procs:
         assert p.stdin is not None
         p.stdin.write("go\n")
         p.stdin.flush()
-    for p in procs:
-        assert p.stdout is not None and p.stdout.readline().strip() == "ready"
+    # SQLite's write lock is not fair between agents either, so wait for traffic across the run
+    # rather than for every worker to have reserved a set number of times.
+    deadline = time.monotonic() + 30
+    while len(reserved_events(engine, root["run_id"])) < 3 * count:
+        assert time.monotonic() < deadline, "agent reservations did not start"
+        time.sleep(0.005)
     return procs
 
 
