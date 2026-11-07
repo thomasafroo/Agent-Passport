@@ -14,8 +14,14 @@ import math
 import os
 from pathlib import Path
 import sqlite3
+import sys
 import time
 import uuid
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
@@ -43,6 +49,91 @@ APPROVAL_DECISIONS = {"approve": ("approved", "approved", "OPERATOR_APPROVED"),
                       "deny": ("approval_denied", "denied", "OPERATOR_DENIED")}
 # Issued on behalf of this owner when a caller names none. Created on first use.
 DEFAULT_OWNER = {"id": "own_local", "user_name": "local-operator", "display_name": "Local operator", "external_id": None}
+BUSY_TIMEOUT = 30.0  # seconds any transaction waits for the write lock, or for the operator gate
+
+
+def is_busy(error):
+    """True for SQLITE_BUSY and its extended forms, such as SQLITE_BUSY_RECOVERY.
+
+    Python reports the extended result code, so compare only its primary (low) byte.
+    """
+    code = getattr(error, "sqlite_errorcode", None)
+    return code is not None and code & 0xFF == sqlite3.SQLITE_BUSY
+
+
+class OperatorGate:
+    """Puts an operator's cut ahead of agent traffic for the SQLite write lock.
+
+    SQLite's busy handler sleeps and retries, so it does not queue writers fairly: a stream of
+    short agent transactions can keep beating an operator's revoke to the lock. The gate is an
+    exclusive OS lock on one byte of a file beside the database. An operator transaction holds
+    it while it waits for the write lock and until it commits. Every other transaction first
+    waits until the gate is free, so once an operator holds it no new agent transaction starts;
+    the operator waits only for transactions that had already passed the gate.
+
+    The gate is an ordering aid, never an authorization check. Correctness still rests on the
+    write lock and the online chain check. The OS drops the lock when its holder exits, so a
+    crashed operator cannot stall agents, and a gate that stays held fails the agent's
+    transaction after the busy timeout, like the write lock itself, rather than letting it skip.
+
+    Locks belong to the open file (POSIX flock) or the handle (Windows), so threads of one
+    process exclude each other as separate processes do.
+    """
+
+    POLL = 0.0005
+
+    def __init__(self, path):
+        self.path = Path(path)
+        os.close(os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600))
+
+    @staticmethod
+    def _try_lock(fd):
+        try:
+            if sys.platform == "win32":
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            return False
+
+    @staticmethod
+    def _unlock(fd):
+        if sys.platform == "win32":
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+
+    def _acquire(self, fd, timeout):
+        deadline = time.monotonic() + (BUSY_TIMEOUT if timeout is None else timeout)
+        while not self._try_lock(fd):
+            if time.monotonic() >= deadline:
+                raise sqlite3.OperationalError("operator gate is busy")
+            time.sleep(self.POLL)
+
+    @contextmanager
+    def hold(self, timeout=None):
+        """Operator side: keep agents out until the operator's transaction ends."""
+        fd = os.open(self.path, os.O_RDWR)
+        try:
+            self._acquire(fd, timeout)
+            try:
+                yield
+            finally:
+                self._unlock(fd)
+        finally:
+            os.close(fd)
+
+    def pass_through(self, timeout=None):
+        """Agent side: wait while an operator holds the gate, then let it go at once."""
+        fd = os.open(self.path, os.O_RDWR)
+        try:
+            self._acquire(fd, timeout)
+            self._unlock(fd)
+        finally:
+            os.close(fd)
 
 
 def canonical(value):
@@ -141,6 +232,7 @@ class Passport:
         else:
             self.key, self.issuer_key_source = self._file_key(), "file"
         self.public_key = b64(self.key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))
+        self.gate = OperatorGate(self.directory / "operator.gate")
         self._initialize_schema()
 
     def _file_key(self):
@@ -220,17 +312,43 @@ class Passport:
             db.close()
 
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+        db = sqlite3.connect(self.path, timeout=BUSY_TIMEOUT, isolation_level=None)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
-        db.execute("PRAGMA busy_timeout=30000")
+        db.execute(f"PRAGMA busy_timeout={int(BUSY_TIMEOUT * 1000)}")
         return db
 
     @contextmanager
-    def transaction(self):
+    def transaction(self, operator=False):
+        """A write transaction. operator=True puts it ahead of agent transactions (see OperatorGate)."""
+        if operator:
+            with self.gate.hold(), self._write(poll=True) as db:
+                yield db
+        else:
+            self.gate.pass_through()
+            with self._write() as db:
+                yield db
+
+    @contextmanager
+    def _write(self, poll=False):
         db = self.connect()
         try:
-            db.execute("BEGIN IMMEDIATE")
+            if poll:
+                # Behind the gate only transactions already past it remain. SQLite's busy handler
+                # backs off to 100 ms sleeps; poll in short steps instead, within the same timeout.
+                db.execute("PRAGMA busy_timeout=0")
+                deadline = time.monotonic() + BUSY_TIMEOUT
+                while True:
+                    try:
+                        db.execute("BEGIN IMMEDIATE")
+                        break
+                    except sqlite3.OperationalError as error:
+                        if not is_busy(error) or time.monotonic() >= deadline:
+                            raise
+                        time.sleep(OperatorGate.POLL)
+                db.execute(f"PRAGMA busy_timeout={int(BUSY_TIMEOUT * 1000)}")
+            else:
+                db.execute("BEGIN IMMEDIATE")
             yield db
             db.commit()
         except Exception:
@@ -397,7 +515,7 @@ class Passport:
 
     def revoke(self, gid):
         """Trusted control-plane operation; never exposed on the agent endpoint."""
-        with self.transaction() as db:
+        with self.transaction(operator=True) as db:
             g = db.execute("SELECT * FROM grants WHERE id=?", (gid,)).fetchone()
             if not g:
                 raise Denied("GRANT_UNKNOWN", "Unknown grant.")
@@ -663,7 +781,7 @@ class Passport:
             raise Denied("OPERATOR_INVALID", "Name the deciding operator in 1 to 60 characters.")
         state, verdict, rule = APPROVAL_DECISIONS[decision]
         denial = None
-        with self.transaction() as db:
+        with self.transaction(operator=True) as db:
             op = db.execute("SELECT * FROM operations WHERE id=?", (oid,)).fetchone()
             if not op:
                 raise Denied("OPERATION_UNKNOWN", "Unknown operation.")
@@ -895,7 +1013,7 @@ class Passport:
         if not isinstance(active, bool):
             raise Denied("OWNER_INVALID", "Active must be true or false.")
         actor = self._text(actor, 60, "OPERATOR_INVALID", "The acting operator")
-        with self.transaction() as db:
+        with self.transaction(operator=True) as db:
             o = db.execute("SELECT * FROM owners WHERE id=?", (owner_id,)).fetchone()
             if o is None:
                 raise Denied("OWNER_UNKNOWN", "Unknown owner.")

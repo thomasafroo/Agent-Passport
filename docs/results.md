@@ -30,6 +30,19 @@ After holder binding was added, a run on 2026-10-31 on the same machine measured
 
 The 100-agent protected experiment took 1,986.91 ms overall. This includes contention and service-fixture execution. The sequential authorization measurement is not a signature-only microbenchmark. The revocation measurement starts before the revoke call and ends after a subsequent request is denied; it includes both transactions. There is no cache propagation delay in this architecture.
 
+## Operator cut under agent load
+
+Measured 2026-11-02 on the same Windows 11 machine (24 logical processors). Eight worker processes each reserved in a tight loop with no pause, from a pool of 1,000 units; once all were reserving, the operator revoked the root or deprovisioned its owner. "Admitted after the call" counts reservation events stamped after the operator's call and ordered before the cut. 15 trials per row.
+
+| Cut | Gate | Latency median | Latency max | Admitted after the call, median | Admitted, max |
+|---|---|---:|---:|---:|---:|
+| Revoke | none | 75 ms | 237 ms | 7 | 34 |
+| Revoke | operator gate | 36 ms | 128 ms | 3 | 8 |
+| Deprovision | none | 107 ms | 499 ms | 15 | 87 |
+| Deprovision | operator gate | 24 ms | 79 ms | 3 | 8 |
+
+With the gate, no trial admitted more than eight, one per worker process, which is the bound the design gives. Without it, this machine never starved a cut until the pool was empty, but the earlier Linux CI run did. Linux was not measured for this table. Sequential reservation latency with the gate (200 samples, three runs) had a median of 3.92–4.02 ms against 4.06–4.22 ms without it, within run-to-run noise. These are single-machine timings, not distributed guarantees.
+
 ## Simulated revocation experiment
 
 A deterministic simulation compares online checks, a fail-open cache, and bounded staleness with budget leases under a network partition. It models a hypothetical edge, not the shipped gateway. See [revocation-experiment.md](revocation-experiment.md).

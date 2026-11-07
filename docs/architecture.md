@@ -155,6 +155,17 @@ The adapter normally sends a fresh idempotency key with each `perform_operation`
 
 Revocation commits a flag on a grant in a write transaction. Reservations and dispatches inspect every ancestor in their own write transaction. A dispatch transaction committed after revocation observes it and fails. A dispatch committed before revocation can proceed and finish afterward. The final service call is outside the DB transaction; revocation is not a cancellation primitive for work that has already crossed the dispatch boundary.
 
+### Operator priority
+
+SQLite's busy handler sleeps and retries rather than queueing writers, so a steady stream of short agent transactions can keep beating an operator's write to the lock. Revocation, owner deprovisioning and reactivation, and approval decisions therefore take an operator gate first: an exclusive OS lock on one byte of `operator.gate` beside the database (`flock` on POSIX, `msvcrt.locking` on Windows). The operator holds it while it waits for the write lock and until it commits, and polls for the write lock in sub-millisecond steps instead of the busy handler's backoff. Every other write transaction (delegation, reservation, dispatch, settlement, passport reads by agents) waits until the gate is free before it begins.
+
+```text
+operator: take gate ── BEGIN IMMEDIATE ── revoke ── COMMIT ── release gate
+agent:    wait while gate is held ── BEGIN IMMEDIATE ── reserve ── COMMIT
+```
+
+Once the operator holds the gate, the only agent transactions that can still commit ahead of it are those that had already passed the gate: at most one per agent thread or process. The gate is an ordering aid, not an authorization check. Linearization still comes from the write lock and the online chain check, and a transaction that skipped the gate would still be ordered correctly, only possibly ahead of the operator. Locks belong to the open file or handle, so threads exclude each other as processes do, and the OS releases the gate when a holder exits, so a crashed operator cannot stall agents. A gate that stays held past the 30-second busy timeout fails the agent's transaction, exactly as an unavailable write lock does; it never lets the transaction proceed without the gate. Operators still serialize among themselves.
+
 Reservations cancelled before dispatch return their units once. Descendant rows are not rewritten on revocation; effective status is derived from the ancestor chain. Sibling branches remain valid, although an abusive branch may already have consumed the shared budget. Containment does not guarantee fairness or unspent capacity for siblings.
 
 There is no authorization cache. A database error fails the request rather than falling back to allow.
