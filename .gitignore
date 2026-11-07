@@ -13,3 +13,4 @@ build/
 dist/
 .hypothesis/
 verifier-rs/target/
+.claude/
