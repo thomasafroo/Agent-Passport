@@ -52,6 +52,15 @@ DEFAULT_OWNER = {"id": "own_local", "user_name": "local-operator", "display_name
 BUSY_TIMEOUT = 30.0  # seconds any transaction waits for the write lock, or for the operator gate
 
 
+def is_busy(error):
+    """True for SQLITE_BUSY and its extended forms, such as SQLITE_BUSY_RECOVERY.
+
+    Python reports the extended result code, so compare only its primary (low) byte.
+    """
+    code = getattr(error, "sqlite_errorcode", None)
+    return code is not None and code & 0xFF == sqlite3.SQLITE_BUSY
+
+
 class OperatorGate:
     """Puts an operator's cut ahead of agent traffic for the SQLite write lock.
 
@@ -334,7 +343,7 @@ class Passport:
                         db.execute("BEGIN IMMEDIATE")
                         break
                     except sqlite3.OperationalError as error:
-                        if error.sqlite_errorcode != sqlite3.SQLITE_BUSY or time.monotonic() >= deadline:
+                        if not is_busy(error) or time.monotonic() >= deadline:
                             raise
                         time.sleep(OperatorGate.POLL)
                 db.execute(f"PRAGMA busy_timeout={int(BUSY_TIMEOUT * 1000)}")

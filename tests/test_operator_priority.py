@@ -173,3 +173,15 @@ def test_cut_under_unpaced_agent_processes_is_prompt_and_linearized(tmp_path, cu
     # Generous for slow CI runners; without the gate the cut could wait out the 30-second busy timeout.
     assert waited < 10
 
+
+
+def test_operator_retries_extended_busy_codes():
+    # SQLITE_BUSY_RECOVERY and SQLITE_BUSY_SNAPSHOT are busy too; only other errors stop the retry.
+    def error(code):
+        e = sqlite3.OperationalError("database is locked")
+        e.sqlite_errorcode = code  # type: ignore[attr-defined]
+        return e
+
+    assert all(core.is_busy(error(code)) for code in (5, 261, 517, 773))
+    assert not core.is_busy(error(6))  # SQLITE_LOCKED
+    assert not core.is_busy(sqlite3.OperationalError("no code"))
